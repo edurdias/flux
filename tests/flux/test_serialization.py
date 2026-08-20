@@ -56,7 +56,7 @@ class TestValueTypesRoundTrip:
             {1, 2, 3},
             frozenset({1, 2}),
             datetime.datetime(2026, 8, 19, 12, 30, 45, 123456),
-            datetime.datetime.now(datetime.timezone.utc),
+            datetime.datetime.now(datetime.UTC),
             datetime.date(2026, 8, 19),
             datetime.time(12, 30, 45),
             datetime.timedelta(days=2, seconds=30),
@@ -74,7 +74,7 @@ class TestValueTypesRoundTrip:
 
     def test_nesting_is_preserved(self):
         value = {
-            "when": datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc),
+            "when": datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC),
             "ids": (uuid.uuid4(), uuid.uuid4()),
             "tags": {"a", "b"},
             "rows": [{"n": decimal.Decimal("0.1")}],

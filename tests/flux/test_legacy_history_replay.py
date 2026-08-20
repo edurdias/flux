@@ -21,6 +21,7 @@ import dill
 import pytest
 
 from flux.config import Configuration
+from flux.domain.events import ExecutionState
 
 
 @pytest.fixture
@@ -62,7 +63,7 @@ def _write_legacy_row(execution_id: str, output: object) -> None:
                 workflow_namespace="default",
                 input=None,
                 output=None,
-                state="COMPLETED",
+                state=ExecutionState.COMPLETED,
             ),
         )
         session.commit()
@@ -120,7 +121,7 @@ def test_a_legacy_row_and_a_new_row_coexist(legacy_db):
                 workflow_namespace="default",
                 input=None,
                 output={"written": "after", "when": datetime.datetime(2026, 6, 1)},
-                state="COMPLETED",
+                state=ExecutionState.COMPLETED,
             ),
         )
         session.commit()
@@ -152,7 +153,7 @@ def test_the_new_row_is_not_a_pickle_stream(legacy_db):
                 workflow_namespace="default",
                 input=None,
                 output={"a": 1},
-                state="COMPLETED",
+                state=ExecutionState.COMPLETED,
             ),
         )
         session.commit()
