@@ -52,9 +52,10 @@ def _cm(value):
 
 
 async def _run_one_scheduler_cycle(server, mock_manager):
-    """Drive Server._scheduler_loop through exactly one iteration."""
-    server.scheduler_running = True
-    server.poll_interval = 0
+    """Drive SchedulerLoop._loop through exactly one iteration."""
+    loop = server._scheduler()
+    loop.running = True
+    loop._poll_interval = 0
 
     call_count = 0
 
@@ -66,10 +67,10 @@ async def _run_one_scheduler_cycle(server, mock_manager):
         raise asyncio.CancelledError()
 
     with (
-        patch("flux.server.create_schedule_manager", return_value=mock_manager),
+        patch("flux.scheduler_loop.create_schedule_manager", return_value=mock_manager),
         patch("asyncio.sleep", side_effect=sleep_then_cancel),
     ):
-        await server._scheduler_loop()
+        await loop._loop()
 
 
 @pytest.mark.asyncio

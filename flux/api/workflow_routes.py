@@ -20,6 +20,7 @@ from fastapi import HTTPException
 from fastapi import UploadFile
 from sse_starlette import EventSourceResponse
 
+from flux.autoschedule import auto_create_schedules
 from flux.catalogs import WorkflowCatalog
 from flux.context_managers import ContextManager
 from flux.errors import (
@@ -131,7 +132,7 @@ class WorkflowRoutesMixin:
                 result = catalog.save(workflows)
                 logger.debug(f"Saved workflows: {[w.qualified_name for w in workflows]}")
 
-                self._auto_create_schedules_from_source(source, workflows)
+                auto_create_schedules(source, workflows)
 
                 # Every registered version reconciles the same owner-scoped
                 # rows (hooks are not version-scoped, matching schedules) --

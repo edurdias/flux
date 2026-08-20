@@ -109,6 +109,30 @@ class ContextManager(ABC):
         ``ExecutionContextNotFoundError`` when the execution doesn't exist."""
         raise NotImplementedError()
 
+    # -- scheduler-tick sweeps ------------------------------------------
+    # Declared here because the scheduler loop is a separate module now
+    # (#264) and calls them through this interface: what the tick needs
+    # from the store should be readable in the store's own contract rather
+    # than discovered from a concrete class.
+
+    def fail_expired_parked(self, now: datetime | None = None) -> list[str]:  # pragma: no cover
+        """Fail executions still unclaimed past their park deadline (#157)."""
+        raise NotImplementedError()
+
+    def resolve_orphaned_cancellations(
+        self,
+        connected_workers: Sequence[str],
+        grace_seconds: int,
+        now: datetime | None = None,
+        liveness_seconds: int = 60,
+    ) -> list[str]:  # pragma: no cover
+        """Settle CANCELLING executions whose delivery target is gone (#225)."""
+        raise NotImplementedError()
+
+    def fire_due_wakes(self, now: datetime | None = None) -> list[str]:  # pragma: no cover
+        """Resume executions whose wake_at / wake_on_complete has come due."""
+        raise NotImplementedError()
+
     def get_summary(self, execution_id: str) -> dict:  # pragma: no cover
         """Summary fields for an execution WITHOUT hydrating its event log.
 

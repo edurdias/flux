@@ -637,7 +637,11 @@ class TestSchedulerWiring:
         )
         server = Server("127.0.0.1", 0)
 
-        with patch("flux.server.drain_once", new_callable=AsyncMock, return_value=1) as drain:
+        with patch(
+            "flux.scheduler_loop.drain_once",
+            new_callable=AsyncMock,
+            return_value=1,
+        ) as drain:
             await _run_one_scheduler_cycle(server, _dispatching_manager())
 
         assert drain.await_count == 1
@@ -660,7 +664,7 @@ class TestSchedulerWiring:
         Configuration.get().override(hooks={"enabled": False})
         server = Server("127.0.0.1", 0)
 
-        with patch("flux.server.drain_once", new_callable=AsyncMock) as drain:
+        with patch("flux.scheduler_loop.drain_once", new_callable=AsyncMock) as drain:
             await _run_one_scheduler_cycle(server, _dispatching_manager())
 
         drain.assert_not_awaited()
@@ -671,17 +675,17 @@ class TestSchedulerWiring:
 
         Configuration.get().override(hooks={"enabled": True})
         server = Server("127.0.0.1", 0)
-        server._purge_join_tokens = MagicMock()
+        server._scheduler().purge_join_tokens = MagicMock()
 
         with patch(
-            "flux.server.drain_once",
+            "flux.scheduler_loop.drain_once",
             new_callable=AsyncMock,
             side_effect=RuntimeError("drain exploded"),
         ):
             await _run_one_scheduler_cycle(server, _dispatching_manager())
 
         # The sweep that runs after the drain still got its turn.
-        server._purge_join_tokens.assert_called_once()
+        server._scheduler().purge_join_tokens.assert_called_once()
 
     async def test_authorization_passes_when_auth_is_disabled(self, real_config):
         from flux.server import Server

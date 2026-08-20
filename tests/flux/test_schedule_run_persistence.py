@@ -72,7 +72,7 @@ def test_record_on_deleted_schedule_does_not_raise(manager):
 
 
 async def test_trigger_scheduled_workflow_persists_run(manager):
-    """End-to-end through Server._trigger_scheduled_workflow (auth disabled)."""
+    """End-to-end through SchedulerLoop._trigger (auth disabled)."""
     from flux.server import Server
 
     sch = _create(manager, name="trigger-test")
@@ -83,7 +83,7 @@ async def test_trigger_scheduled_workflow_persists_run(manager):
     mock_ctx = MagicMock()
     mock_ctx.execution_id = "exec-sched-1"
     with patch.object(Server, "_create_execution", return_value=mock_ctx):
-        await server._trigger_scheduled_workflow(due[0], datetime.now(timezone.utc))
+        await server._scheduler()._trigger(due[0], datetime.now(timezone.utc))
 
     fresh = manager.get_schedule(sch.id)
     assert fresh.run_count == 1, "the trigger path must persist the run"
