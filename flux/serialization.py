@@ -81,7 +81,15 @@ def _default(value: Any) -> msgpack.ExtType:
     if isinstance(value, datetime.time):
         return msgpack.ExtType(_EXT_TIME, value.isoformat().encode())
     if isinstance(value, datetime.timedelta):
-        return msgpack.ExtType(_EXT_TIMEDELTA, repr(value.total_seconds()).encode())
+        # (days, seconds, microseconds) -- timedelta's own exact
+        # representation. total_seconds() is a float, and a float cannot
+        # hold a microsecond at large magnitudes: timedelta(days=100000,
+        # microseconds=1) came back with microseconds=2. Replay compares
+        # event values, so a rounded one is a mismatch waiting to happen.
+        return msgpack.ExtType(
+            _EXT_TIMEDELTA,
+            encode_body([value.days, value.seconds, value.microseconds]),
+        )
     if isinstance(value, uuid.UUID):
         return msgpack.ExtType(_EXT_UUID, value.bytes)
     if isinstance(value, decimal.Decimal):
@@ -114,7 +122,8 @@ def _ext_hook(code: int, data: bytes) -> Any:
     if code == _EXT_TIME:
         return datetime.time.fromisoformat(data.decode())
     if code == _EXT_TIMEDELTA:
-        return datetime.timedelta(seconds=float(data.decode()))
+        days, seconds, microseconds = decode_body(data)
+        return datetime.timedelta(days=days, seconds=seconds, microseconds=microseconds)
     if code == _EXT_UUID:
         return uuid.UUID(bytes=data)
     if code == _EXT_DECIMAL:

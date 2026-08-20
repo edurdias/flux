@@ -72,6 +72,23 @@ class TestValueTypesRoundTrip:
         assert restored == value
         assert type(restored) is type(value)
 
+    @pytest.mark.parametrize(
+        "value",
+        [
+            datetime.timedelta(days=100000, microseconds=1),
+            datetime.timedelta(days=999999999, microseconds=999999),
+            datetime.timedelta(days=-1, microseconds=1),
+            datetime.timedelta(microseconds=1),
+            datetime.timedelta(seconds=0.1),
+        ],
+    )
+    def test_timedelta_keeps_its_microseconds_at_any_magnitude(self, value):
+        """Encoded through total_seconds() these lost precision -- a float
+        cannot hold a microsecond alongside 100,000 days, and the largest
+        case rounded a microsecond up to a whole second. Replay compares
+        event values, so a rounded one is a mismatch waiting to happen."""
+        assert decode(encode(value)) == value
+
     def test_nesting_is_preserved(self):
         value = {
             "when": datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC),
@@ -160,7 +177,7 @@ class TestDillIsOffTheEncodablePath:
 
         assert result.returncode == 0, result.stderr
         assert result.stdout.strip() == "False", (
-            "encoding an msgpack-expressible payload imported dill"
+            "encoding a msgpack-expressible payload imported dill"
         )
 
     def test_falling_back_does_import_dill(self):
