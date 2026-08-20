@@ -1715,6 +1715,44 @@ execution -- the ~700 ms post-claim window B1 already isolates -- is what
 a throughput number is really measuring at small task counts, which is
 also why "tasks/s" should always be read together with the shape of the
 workload that produced it.</p>
+<h2 id="guarding-against-drift">Guarding against drift<a class="headerlink" href="#guarding-against-drift" title="Permanent link">&para;</a></h2>
+<p>A single PR's benchmark run cannot tell you whether that PR made Flux
+slower. The run-to-run spread on this machine is 815-899 ms dispatch p50
+and 152-214 tasks/s <strong>for identical code</strong>, which is wider than the effect
+of almost any one change. Every A/B in this document lands inside it.</p>
+<p>The risk that hides in that fact is cumulative: twenty changes each costing
+2% are invisible one at a time and a 50% regression together. So the guard
+is not per-PR significance, it is drift against a stored reference.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>make<span class="w"> </span>bench-check<span class="w">              </span><span class="c1"># 5 runs, compared against tests/perf/reference.json</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>make<span class="w"> </span>bench-check<span class="w"> </span><span class="nv">REPS</span><span class="o">=</span><span class="m">9</span><span class="w">       </span><span class="c1"># more runs, tighter medians</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="nv">FLUX_PERF_STRICT</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>make<span class="w"> </span>bench-check<span class="w">   </span><span class="c1"># exit non-zero on drift</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>make<span class="w"> </span>bench-bless<span class="w"> </span><span class="nv">REPS</span><span class="o">=</span><span class="m">7</span><span class="w">       </span><span class="c1"># re-record the reference from this machine</span>
+</code></pre></div>
+<p>Four properties make it worth trusting:</p>
+<ul>
+<li><strong>Median-to-median, never sample-to-sample.</strong> Both blessing and checking
+  run the suite several times. One reading is not a measurement.</li>
+<li><strong>Tolerance is derived, not chosen.</strong> Half the relative range observed
+  while blessing, floored at 10%. The current reference came out at ±17%
+  for claim p50 (the noisiest figure) and the floor for the rest. A band
+  tighter than the machine's own noise produces alerts that teach people
+  to ignore alerts.</li>
+<li><strong>Faster is never a failure.</strong> Beating the reference is a reason to
+  re-bless, which is a person's decision.</li>
+<li><strong>The reference is refreshed deliberately.</strong> <code>make bench-bless</code> is an
+  explicit act and its diff is reviewable. A baseline that follows the code
+  is not a baseline.</li>
+</ul>
+<p><strong>Run it on a quiet machine.</strong> This is not a formality: an A/B run during
+this work overlapped with the e2e suite and showed a pure code-motion
+refactor "regressing" dispatch p50 in seven of eight pairs (p=0.07). Re-run
+on an idle box, the effect vanished entirely. A benchmark sharing a machine
+with a test suite measures the test suite.</p>
+<p><strong>Not a CI gate.</strong> Shared runners are too noisy and too heterogeneous for
+median-vs-reference comparison to mean anything; that is why the suite's
+performance gates are soft there. This is a check for fixed hardware, and
+its value accrues in the stored reference: drift that no single PR could
+show becomes visible against a number blessed three releases ago.</p>
 <h2 id="profiling">Profiling<a class="headerlink" href="#profiling" title="Permanent link">&para;</a></h2>
 <p><code>make bench-profile B=&lt;id&gt;</code> runs a benchmark with the server and worker
 launched <strong>under</strong> py-spy, writing flame graphs to
