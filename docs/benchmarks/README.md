@@ -218,12 +218,31 @@ Encoding is 2-43x faster; decoding is a wash (dill's decode was never the
 expensive half, and msgpack is slightly slower on the deeply nested case).
 Payload sizes are within a few percent either way.
 
-**End to end this is invisible, and that is the honest headline.** The
-B-series after the change: dispatch p50 830 ms SQLite / 884 ms PostgreSQL,
-throughput 180 / 162 tasks/s, replay 572 / 608 ms fixed -- all inside the
-run-to-run spread documented above. Serialization is a fraction of a ~1 ms
-per-task marginal, so a 43x on the encode of a large payload does not move
-a benchmark whose cost is dominated by execution startup.
+**End to end this is invisible, and that is the honest headline.**
+Measured properly rather than asserted: 18 interleaved A/B pairs (10
+SQLite, 8 PostgreSQL), switching only `flux/` between runs.
+
+| metric | msgpack wins | sign test |
+|---|---|---|
+| claim p50 | 13/18 | p = 0.096 |
+| claim p95 | 6/18 | p = 0.238 |
+| dispatch p50 | 8/18 | p = 0.815 |
+| dispatch p95 | 7/18 | p = 0.481 |
+| throughput | 8/18 | p = 0.815 |
+
+Nothing reaches significance. Claim latency -- the metric where a faster
+encode would plausibly show, since claiming writes a checkpoint -- is the
+only one that leans, and not far enough to claim.
+
+Worth recording how that number arrived: a first pass of **4** pairs had
+msgpack ahead on every metric in 3 of 4 pairs, which looked like a real
+improvement. Extending to 18 dissolved it. Four pairs cannot resolve an
+effect this small, and a benchmark suite that reports one anyway is worse
+than none.
+
+Serialization is a fraction of a ~1 ms per-task marginal, so a 43x on the
+encode of a large payload does not move a benchmark whose cost is
+dominated by execution startup.
 
 The reason to make the change is the other one: every payload on msgpack
 is a payload whose *read* no longer executes code.
