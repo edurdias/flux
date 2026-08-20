@@ -1351,6 +1351,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#what-the-second-extraction-changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the second extraction changed
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#getting-to-wiring-only" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1418,7 +1429,7 @@ and by how many call sites outside <code>server.py</code> reach for the same sta
 <td>462</td>
 <td>6</td>
 <td>0</td>
-<td>next</td>
+<td><strong>extracted</strong> → <code>flux/autoschedule.py</code>, <code>flux/scheduler_loop.py</code></td>
 </tr>
 <tr>
 <td>Execution &amp; dispatch</td>
@@ -1471,6 +1482,33 @@ call the module directly; neither reaches into the server any more.</p>
 </ul>
 <p>No behavior change: the full unit suite, the hook suites, the e2e suite and
 the benchmark series are unchanged.</p>
+<h2 id="what-the-second-extraction-changed">What the second extraction changed<a class="headerlink" href="#what-the-second-extraction-changed" title="Permanent link">&para;</a></h2>
+<p>Scheduling came out in two pieces, because they are not equally coupled.</p>
+<p><code>flux/autoschedule.py</code> (124 lines) is the <code>&lt;workflow&gt;_auto</code> reconciliation.
+It touched <strong>no</strong> server state at all -- registration calls it, and a
+schedule declared on a workflow is a property of that workflow, not of the
+process that received it. A free function, called directly by
+<code>workflow_routes.py</code>.</p>
+<p><code>flux/scheduler_loop.py</code> (431 lines) is the tick: <code>SchedulerLoop</code>, a
+collaborator owning the lifecycle state that used to sit on <code>Server</code>
+(<code>task</code>, <code>running</code>, the join-token purge clock). Its dependencies arrive
+through the constructor, which makes the remaining coupling countable:</p>
+<ul>
+<li><code>create_execution</code> and <code>session_factory</code> -- the two capabilities a tick
+  genuinely needs.</li>
+<li><code>execution_events</code> and <code>worker_queues</code> -- <strong>shared dictionaries, not
+  copies</strong>. The tick wakes an execution's waiters and hands resumed work to
+  a worker's queue, writing into the same objects the request handlers
+  read. That sharing is the honest remainder of this extraction, and it is
+  what a future engine-core boundary would have to turn into a channel.</li>
+<li>the two hook callables, bound by the server.</li>
+</ul>
+<p>Moving the tick out also surfaced something the old placement hid: it calls
+three <code>ContextManager</code> sweeps (<code>fail_expired_parked</code>,
+<code>resolve_orphaned_cancellations</code>, <code>fire_due_wakes</code>) that existed only on the
+concrete class, never in the interface. They are declared on the ABC now --
+what the tick needs from the store should be readable in the store's own
+contract rather than discovered from an implementation.</p>
 <h2 id="getting-to-wiring-only">Getting to "wiring only"<a class="headerlink" href="#getting-to-wiring-only" title="Permanent link">&para;</a></h2>
 <p>The ticket's target is <code>server.py</code> under ~500 lines. Reaching it needs all
 four groups out, and the last of them is the 51-call-site worker-fleet
@@ -1489,16 +1527,16 @@ the cheapest 8% of the file, and the arithmetic from here is:</p>
 <td>1,782</td>
 </tr>
 <tr>
-<td>+ scheduling</td>
-<td>~1,320</td>
+<td>+ scheduling (done)</td>
+<td><strong>1,332</strong></td>
 </tr>
 <tr>
 <td>+ execution &amp; dispatch</td>
-<td>~1,040</td>
+<td>~1,050</td>
 </tr>
 <tr>
 <td>+ worker fleet</td>
-<td>~700</td>
+<td>~710</td>
 </tr>
 </tbody>
 </table>
