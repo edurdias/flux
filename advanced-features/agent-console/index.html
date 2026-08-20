@@ -1836,7 +1836,7 @@ corresponding server call, made with your token.</p>
 <tr>
 <td>Approvals queue</td>
 <td><code>GET /approvals</code></td>
-<td>results are scoped to the workflows you can read (<code>workflow:{ns}:{wf}:read</code>)</td>
+<td>results are scoped to the workflows you can read (<code>workflow:{ns}:{wf}:read</code>); a token holding <strong>no</strong> workflow read grant at all gets a hard 403 naming <code>workflow:*:*:read</code>, not an empty list</td>
 </tr>
 <tr>
 <td>New session</td>
@@ -1851,7 +1851,7 @@ corresponding server call, made with your token.</p>
 <tr>
 <td>First spawn of an agent shipping a <code>workflow_file</code></td>
 <td><code>POST /workflows</code></td>
-<td><code>workflow:agents:*:register</code></td>
+<td><code>workflow:{ns}:*:register</code>, where <code>{ns}</code> is the namespace the agent's <code>workflow_file</code> source declares — <code>agents</code> for anything the console generates, but an agent shipping a workflow that declares its own namespace needs the grant for <em>that</em> one</td>
 </tr>
 <tr>
 <td>Approve / reject</td>
@@ -1871,7 +1871,11 @@ corresponding server call, made with your token.</p>
 </tbody>
 </table>
 <p>Console sessions live in the <code>agents</code> namespace, on <code>agent_chat</code> or on the
-agent's own <code>agent_custom_&lt;name&gt;</code> workflow.</p>
+agent's own <code>agent_custom_&lt;name&gt;</code> workflow: <code>ConsoleService.spawn</code> passes
+<code>namespace="agents"</code> when starting one, so every row above that names
+<code>workflow:agents:...</code> is reading that contract rather than a default. The
+registration row is the exception — the namespace there comes from the
+uploaded source's own decorator, not from the console.</p>
 <h3 id="read-only-degradation">Read-only degradation<a class="headerlink" href="#read-only-degradation" title="Permanent link">&para;</a></h3>
 <p>A token that can read but not write gets a usable console, not a broken one.
 Every write control — send, new session, rename, stop, approve — is disabled
@@ -1919,7 +1923,7 @@ the console's own.</p>
 <tr>
 <td><code>GET</code></td>
 <td><code>/console/sessions</code></td>
-<td>Rail rows (<code>derived_title</code> is the cached display fallback)</td>
+<td>Rail rows (<code>derived_title</code> is the cached display fallback). One server page — the count behind it rides on the <code>X-Flux-Session-Total</code> response header, and both UIs show "showing N of M" when the two differ</td>
 </tr>
 <tr>
 <td><code>GET</code></td>
