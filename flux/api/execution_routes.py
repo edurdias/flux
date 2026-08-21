@@ -254,11 +254,8 @@ class ExecutionRoutesMixin:
                     )
 
                 if mode == "stream":
-                    self._execution_events.setdefault(ctx.execution_id, asyncio.Event())
-                    self._progress_buffers.setdefault(
-                        ctx.execution_id,
-                        asyncio.Queue(maxsize=10000),
-                    )
+                    self.signals.event_for(ctx.execution_id)
+                    self.signals.open_progress_buffer(ctx.execution_id)
                     return EventSourceResponse(
                         self._stream_execution_events(
                             ctx,

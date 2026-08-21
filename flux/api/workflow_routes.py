@@ -453,15 +453,12 @@ class WorkflowRoutesMixin:
                 # Register execution event BEFORE notifying workers to avoid
                 # race where worker checkpoints before event exists.
                 if mode in ("sync", "stream"):
-                    self._execution_events.setdefault(
-                        ctx.execution_id,
-                        asyncio.Event(),
-                    )
+                    self.signals.event_for(ctx.execution_id)
 
                 self._notify_next_worker()
 
                 if mode == "sync":
-                    event = self._execution_events[ctx.execution_id]
+                    event = self.signals.event_for(ctx.execution_id)
                     try:
                         while not ctx.has_finished:
                             try:
@@ -471,10 +468,10 @@ class WorkflowRoutesMixin:
                             event.clear()
                             ctx = await asyncio.to_thread(manager.get, ctx.execution_id)
                     finally:
-                        self._execution_events.pop(ctx.execution_id, None)
+                        self.signals.drop_event(ctx.execution_id)
 
                 if mode == "stream":
-                    self._progress_buffers[ctx.execution_id] = asyncio.Queue(maxsize=10000)
+                    self.signals.open_progress_buffer(ctx.execution_id)
 
                     return EventSourceResponse(
                         self._stream_execution_events(ctx, manager, detailed),
@@ -617,15 +614,12 @@ class WorkflowRoutesMixin:
                 # Register execution event BEFORE notifying workers to avoid
                 # race where worker checkpoints before event exists.
                 if mode in ("sync", "stream"):
-                    self._execution_events.setdefault(
-                        ctx.execution_id,
-                        asyncio.Event(),
-                    )
+                    self.signals.event_for(ctx.execution_id)
 
                 self._notify_next_worker()
 
                 if mode == "sync":
-                    event = self._execution_events[ctx.execution_id]
+                    event = self.signals.event_for(ctx.execution_id)
                     try:
                         while not ctx.has_finished:
                             try:
@@ -635,10 +629,10 @@ class WorkflowRoutesMixin:
                             event.clear()
                             ctx = await asyncio.to_thread(manager.get, ctx.execution_id)
                     finally:
-                        self._execution_events.pop(ctx.execution_id, None)
+                        self.signals.drop_event(ctx.execution_id)
 
                 if mode == "stream":
-                    self._progress_buffers[ctx.execution_id] = asyncio.Queue(maxsize=10000)
+                    self.signals.open_progress_buffer(ctx.execution_id)
 
                     return EventSourceResponse(
                         self._stream_execution_events(ctx, manager, detailed),
@@ -786,7 +780,7 @@ class WorkflowRoutesMixin:
                     manager.save(ctx, uow=uow)
                     uow.commit()
 
-                self._execution_queue_times.pop(execution_id, None)
+                self.signals.take_queued_at(execution_id)
 
                 from flux.observability import get_metrics
 
@@ -802,15 +796,12 @@ class WorkflowRoutesMixin:
                 # Register execution event BEFORE notifying workers to avoid
                 # race where worker checkpoints before event exists.
                 if mode == "sync":
-                    self._execution_events.setdefault(
-                        ctx.execution_id,
-                        asyncio.Event(),
-                    )
+                    self.signals.event_for(ctx.execution_id)
 
                 self._notify_next_worker()
 
                 if mode == "sync":
-                    event = self._execution_events[ctx.execution_id]
+                    event = self.signals.event_for(ctx.execution_id)
                     try:
                         while not ctx.has_finished:
                             logger.debug(
@@ -823,7 +814,7 @@ class WorkflowRoutesMixin:
                             event.clear()
                             ctx = await asyncio.to_thread(manager.get, ctx.execution_id)
                     finally:
-                        self._execution_events.pop(ctx.execution_id, None)
+                        self.signals.drop_event(ctx.execution_id)
 
                 dto = ExecutionContextDTO.from_domain(ctx)
                 result = await redacted_response(ctx, detailed=detailed)
