@@ -117,7 +117,7 @@ class _FakeService(ConsoleService):
     async def list_agents(self):
         return list(self._agents)
 
-    async def list_sessions(self, agent=None):
+    async def list_sessions(self, agent=None, limit=None, offset=0):
         # Filters for real, like GET /agents/sessions?agent=: a rail query
         # that quietly returned everything would hide exactly the bug where
         # a session falls outside the filter the console is asking with.
@@ -452,6 +452,26 @@ async def test_enter_on_a_rail_row_opens_that_session():
         await pilot.press("enter")
         await pilot.pause()
         assert app.active_session == "exec-1"
+
+
+async def test_the_subset_row_widens_the_page_to_every_session():
+    """The rail's "showing N of M" line used to document itself and stop --
+    the sessions past the server page were unreachable from the console.
+    Selecting it widens the page the refresh loop asks with (#245)."""
+    service = _FakeService(sessions=[RUNNING_ROW])
+    service.session_total = 100
+    app = _console(service)
+    async with app.run_test(size=(120, 32)) as pilot:
+        await pilot.pause()
+        assert app._session_limit is None
+        assert "showing 1 of 100" in _rail_text(app)
+        await pilot.press("1")
+        # One row between the heading and the subset line, then select it.
+        await pilot.press("down")
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app._session_limit == 100
+        assert app.query_one("#panel-sessions", OptionList).highlighted is not None
 
 
 async def test_live_tokens_stream_into_the_chat():

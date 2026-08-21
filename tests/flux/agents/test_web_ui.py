@@ -40,7 +40,7 @@ class _FakeConsoleService(_ScopedConsoleService):
         super().__init__(server_url)
         self.tokens_seen: list[str | None] = []
 
-    async def list_sessions(self, agent=None):
+    async def list_sessions(self, agent=None, limit=None, offset=0):
         self.tokens_seen.append(self.token)
         return SessionPage(rows=[], total=0)
 

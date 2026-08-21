@@ -436,9 +436,11 @@ def mount_console_routes(
     async def console_sessions(
         response: Response,
         agent: str | None = None,
+        limit: int | None = None,
+        offset: int = 0,
         service: ConsoleService = Depends(_service_dependency),
     ) -> list[dict]:
-        page = await _call(write_state, service.list_sessions(agent))
+        page = await _call(write_state, service.list_sessions(agent, limit, offset))
         rows = page.rows
         # The server caps this listing, so the rail can be showing fifty of
         # two hundred with nothing to say so (#245). Carried in a header

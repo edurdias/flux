@@ -84,7 +84,7 @@ class _FakeService(ConsoleService):
     async def list_agents(self):
         return self._agents
 
-    async def list_sessions(self, agent=None):
+    async def list_sessions(self, agent=None, limit=None, offset=0):
         return SessionPage(rows=self._sessions, total=self._session_total or len(self._sessions))
 
     async def list_approvals(self):
@@ -216,6 +216,29 @@ def test_console_sessions_carries_name_and_derived_title_from_hub_cache():
     assert rows["exec-unopened"]["name"] == "custom name"
     assert rows["exec-opened"]["state"] == "PAUSED"
     assert rows["exec-opened"]["workflow_name"] == "agent_chat"
+
+
+def test_console_sessions_relays_a_widened_page():
+    """The "load the rest" control lives on the route exposing limit/offset
+    (#245); fake records which window the service was asked for."""
+    fake = _FakeService(sessions=[])
+    seen: list[tuple] = []
+
+    async def list_sessions(agent=None, limit=None, offset=0):
+        seen.append((agent, limit, offset))
+        return SessionPage(rows=[], total=0)
+
+    fake.list_sessions = list_sessions
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
+        ui = _make_ui()
+        client = TestClient(ui.app)
+        response = client.get(
+            "/console/sessions?limit=200&offset=50",
+            headers=HEADERS,
+        )
+
+    assert response.status_code == 200
+    assert (None, 200, 50) in seen
 
 
 def test_console_approvals_lists_rows():
