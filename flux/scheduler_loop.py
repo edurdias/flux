@@ -34,6 +34,7 @@ from typing import Any
 from flux.catalogs import WorkflowCatalog
 from flux.config import Configuration
 from flux.context_managers import ContextManager
+from flux.execution_signals import ExecutionSignals
 from flux.hooks.drain import drain_once
 from flux.schedule_manager import create_schedule_manager
 from flux.utils import get_logger
@@ -49,7 +50,7 @@ class SchedulerLoop:
         *,
         create_execution: Callable[..., Any],
         session_factory: Callable[[], Any],
-        execution_events: dict[str, asyncio.Event],
+        signals: ExecutionSignals,
         worker_queues: dict[str, asyncio.Queue],
         hook_starter: Callable[..., Any],
         hook_authorizer: Callable[..., Any],
@@ -57,7 +58,7 @@ class SchedulerLoop:
     ) -> None:
         self._create_execution_fn = create_execution
         self._session_factory = session_factory
-        self._execution_events = execution_events
+        self._signals = signals
         self._worker_queues = worker_queues
         self._hook_starter = hook_starter
         self._hook_authorizer = hook_authorizer
@@ -192,7 +193,7 @@ class SchedulerLoop:
                                     f"cancellation(s): {', '.join(orphaned)}",
                                 )
                                 for execution_id in orphaned:
-                                    event = self._execution_events.get(execution_id)
+                                    event = self._signals.event(execution_id)
                                     if event:
                                         event.set()
                         except Exception:

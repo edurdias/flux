@@ -163,7 +163,7 @@ class Dispatcher:
                     logger.debug(f"LISTEN {_NOTIFY_CHANNEL}/{_EXEC_CHANNEL} established")
                     async for notice in conn.notifies():
                         if notice.channel == _EXEC_CHANNEL:
-                            waiter = self._server._execution_events.get(notice.payload)
+                            waiter = self._server.signals.event(notice.payload)
                             if waiter:
                                 waiter.set()
                         else:
