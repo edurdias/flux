@@ -108,6 +108,9 @@ NARROW_WIDTH = 100  # below this the rail and context panels fold away
 CHAT_ONLY_WIDTH = 80  # below this the status line goes compact
 TITLE_LIMIT = MAX_TITLE_LEN  # one limit, shared with the server's derived_title
 RAIL_WIDTH = 32
+# The rail row that widens the page to every session; deliberately not an
+# execution id, which is why the selection handler checks it first.
+LOAD_MORE_ID = "__load_more_sessions__"
 RAIL_TEXT_WIDTH = RAIL_WIDTH - 4  # minus the panel's border and padding
 
 _PANELS = {
@@ -505,6 +508,9 @@ class ConsoleApp(App):
         # rail is showing (#245); surfaced so a missing session reads as
         # "not on this page" rather than "gone".
         self.session_total: int = 0
+        # Wider page once the rail's "load the rest" control widens it --
+        # None keeps the server's default page (50).
+        self._session_limit: int | None = None
         self.approvals: list[ApprovalRow] = []
         self.agents: list[str] = []
         self.active_session: str | None = None
@@ -607,7 +613,10 @@ class ConsoleApp(App):
         )
 
     async def _refresh_lists(self) -> None:
-        page = await self._read(self.service.list_sessions(self._agent_filter), "sessions")
+        page = await self._read(
+            self.service.list_sessions(self._agent_filter, limit=self._session_limit),
+            "sessions",
+        )
         if page is not None:
             self.sessions = page.rows
             self.session_total = page.total
@@ -1022,17 +1031,17 @@ class ConsoleApp(App):
                     restore_index = index
                 index += 1
 
-        # A truncated rail says so. Without this line the page looks like
-        # the whole set, and a session that exists but sorted past the
-        # server's limit reads as one that is gone (#245).
+        # A truncated rail says so *and* widens on select: without the line
+        # the page looks like the whole set, and a session that exists but
+        # sorted past the server's limit reads as one that is gone (#245).
         if self.session_total > len(self.sessions):
             rail.add_option(
                 Option(
                     Text(
-                        f"showing {len(self.sessions)} of {self.session_total}",
+                        f"showing {len(self.sessions)} of {self.session_total} — load the rest",
                         style=f"italic {MUTED}",
                     ),
-                    disabled=True,
+                    id=LOAD_MORE_ID,
                 ),
             )
 
@@ -1537,5 +1546,11 @@ class ConsoleApp(App):
         if event.option_list.id != "panel-sessions":
             return
         session_id = event.option.id
+        if session_id == LOAD_MORE_ID:
+            # Widen the page to the whole set; the refresh loop re-requests
+            # with this limit, so the expanded rail survives its own poll.
+            self._session_limit = max(self.session_total, len(self.sessions))
+            self._schedule_refresh()
+            return
         if session_id:
             self.run_worker(self.open_session(session_id), name="console-open")

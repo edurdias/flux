@@ -312,6 +312,20 @@ textarea {
   color: var(--muted);
 }
 
+.rail-load-more {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.rail-load-more:hover,
+.rail-load-more:focus-visible {
+  color: var(--text);
+}
+
 .rail-new {
   display: block;
   width: 100%;

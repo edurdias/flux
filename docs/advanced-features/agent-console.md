@@ -186,7 +186,7 @@ the console's own.
 |--------|------|-------|
 | `GET` | `/console/state` | Bound agent, server URL, `can_write`, `missing_permission` |
 | `GET` | `/console/agents` | Agents available to spawn, projected to `name`/`model`/`description` — never the full definition |
-| `GET` | `/console/sessions` | Rail rows (`derived_title` is the cached display fallback). One server page — the count behind it rides on the `X-Flux-Session-Total` response header, and both UIs show "showing N of M" when the two differ |
+| `GET` | `/console/sessions` | Rail rows (`derived_title` is the cached display fallback). One server page — the count behind it rides on the `X-Flux-Session-Total` response header, and both UIs offer a "load the rest" control (widens the page with `?limit=`; survives refreshes) when the two differ |
 | `GET` | `/console/approvals` | Pending approvals across executions |
 | `GET` | `/console/sessions/{id}/detail` | The execution's detailed log |
 | `POST` | `/console/sessions` | `{"agent": "...", "name": "..."}` → `{"execution_id": ...}` |

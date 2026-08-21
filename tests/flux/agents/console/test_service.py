@@ -134,6 +134,25 @@ async def test_list_sessions_filters_by_agent():
 
 
 @pytest.mark.asyncio
+async def test_list_sessions_passes_a_widened_page():
+    """The "load the rest" control lives on the service passing limit
+    through; total still counts the full set (#245)."""
+    service = ConsoleService(server_url="http://test", token="t")
+    captured: dict = {}
+
+    async def fake_handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        return httpx.Response(200, json={"sessions": [], "total": 200, "limit": 200, "offset": 0})
+
+    transport = httpx.MockTransport(fake_handler)
+    with _patched_async_client(transport):
+        await service.list_sessions(limit=200)
+        await service.aclose()
+
+    assert captured["url"] == "http://test/agents/sessions?limit=200"
+
+
+@pytest.mark.asyncio
 async def test_list_approvals_maps_rows():
     service = ConsoleService(server_url="http://test", token="t")
     captured: dict = {}

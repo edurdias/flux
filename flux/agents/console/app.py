@@ -47,7 +47,7 @@ from dataclasses import dataclass
 from typing import TypeVar
 
 import httpx
-from fastapi import Body, Depends, FastAPI, HTTPException, Response
+from fastapi import Body, Depends, FastAPI, HTTPException, Query, Response
 from sse_starlette.sse import EventSourceResponse
 
 from flux.agents.console.errors import error_detail, missing_permission_of
@@ -436,9 +436,11 @@ def mount_console_routes(
     async def console_sessions(
         response: Response,
         agent: str | None = None,
+        limit: int | None = Query(default=None, ge=1),
+        offset: int = Query(default=0, ge=0),
         service: ConsoleService = Depends(_service_dependency),
     ) -> list[dict]:
-        page = await _call(write_state, service.list_sessions(agent))
+        page = await _call(write_state, service.list_sessions(agent, limit=limit, offset=offset))
         rows = page.rows
         # The server caps this listing, so the rail can be showing fifty of
         # two hundred with nothing to say so (#245). Carried in a header

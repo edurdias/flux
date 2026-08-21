@@ -82,16 +82,30 @@ class ConsoleService:
         response.raise_for_status()
         return response.json()
 
-    async def list_sessions(self, agent: str | None = None) -> SessionPage:
+    async def list_sessions(
+        self,
+        agent: str | None = None,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> SessionPage:
         """One page of sessions, and how many there are in total.
 
         The server caps this listing (``limit`` defaults to 50). Returning
         only the rows made that cap invisible: a rail showing fifty of two
         hundred sessions looks exactly like a rail showing all of them, and
-        the session an operator is hunting for is simply absent (#245).
+        the session an operator is hunting for is simply absent (#245). A
+        caller can widen the page with ``limit``/``offset`` (both consoles
+        do so in their "load the rest" control); ``total`` still counts the
+        full set either way.
         """
+        params: dict[str, int | str] = {}
+        if agent:
+            params["agent"] = agent
+        if limit is not None:
+            params["limit"] = limit
+        if offset:
+            params["offset"] = offset
         http = self._ensure_http()
-        params = {"agent": agent} if agent else None
         response = await http.get(
             f"{self.server_url}/agents/sessions",
             params=params,

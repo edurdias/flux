@@ -135,7 +135,7 @@ def test_console_sessions_get_unaffected_by_missing_csrf_header():
         def __init__(self):
             super().__init__(server_url="http://flux.test", token=None)
 
-        async def list_sessions(self, agent=None):
+        async def list_sessions(self, agent=None, limit=None, offset=0):
             return SessionPage(rows=[], total=0)
 
     with patch("flux.agents.console.app._ScopedConsoleService", return_value=_ListingService()):
@@ -256,7 +256,7 @@ async def test_concurrent_requests_with_different_tokens_never_cross_contaminate
         def __init__(self):
             super().__init__(server_url="http://test", token=None)
 
-        async def list_sessions(self, agent=None):
+        async def list_sessions(self, agent=None, limit=None, offset=0):
             before = _request_token.get()
             # Yields control back to the event loop -- exactly the window a
             # shared mutable service.token (the pre-fix design) could be
@@ -304,7 +304,7 @@ async def test_send_background_reconciliation_keeps_its_own_requests_token():
         def __init__(self):
             super().__init__(server_url="http://test", token=None)
 
-        async def list_sessions(self, agent=None):
+        async def list_sessions(self, agent=None, limit=None, offset=0):
             return SessionPage(rows=[], total=0)
 
         async def send(self, execution_id, agent_name, workflow_name, text):

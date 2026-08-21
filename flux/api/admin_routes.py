@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from fastapi import Body
 from fastapi import Depends
 from fastapi import HTTPException
+from fastapi import Query
 
 from flux.errors import HookNameConflictError
 from flux.secret_managers import SecretManager
@@ -491,8 +492,8 @@ class AdminRoutesMixin:
         async def agents_sessions_list(
             agent: str | None = None,
             state: str | None = None,
-            limit: int = 50,
-            offset: int = 0,
+            limit: int = Query(default=50, ge=1),
+            offset: int = Query(default=0, ge=0),
             identity: FluxIdentity = Depends(require_permission("agent:*:read")),
         ):
             """List agent sessions across all agents, optionally filtered."""
@@ -505,8 +506,8 @@ class AdminRoutesMixin:
         async def agent_sessions_list_one(
             name: str,
             state: str | None = None,
-            limit: int = 50,
-            offset: int = 0,
+            limit: int = Query(default=50, ge=1),
+            offset: int = Query(default=0, ge=0),
             identity: FluxIdentity = Depends(require_permission("agent:*:read")),
         ):
             """List sessions for one agent."""

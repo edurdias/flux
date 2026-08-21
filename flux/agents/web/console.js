@@ -89,6 +89,7 @@ const state = {
 
   sessions: [],
   sessionTotal: 0,
+  sessionLimit: null, // server default (50) until "load the rest" widens it
   approvals: [],
   decisions: new Map(), // "exec|call" -> note shown on the approval row
 
@@ -377,8 +378,11 @@ const api = {
   // Reads the truncation header alongside the array: the endpoint returns
   // one page, and a rail that shows fifty of two hundred looks exactly like
   // a rail that shows everything (#245).
-  sessions: async () => {
-    const response = await fetch("/console/sessions");
+  sessions: async (limit = null) => {
+    // `limit` widens the server's page (default 50) so the "load the
+    // rest" rail control can fetch every session at once.
+    const query = limit ? `?limit=${limit}` : "";
+    const response = await fetch(`/console/sessions${query}`);
     if (!response.ok) {
       let body = null;
       try {
@@ -964,15 +968,18 @@ function buildRail() {
     for (const row of group.rows) section.appendChild(railRow(row));
     dom.rail.appendChild(section);
   }
-  // A truncated rail says so. The listing is one server page (limit 50 by
-  // default), so without this a session that exists but sorted past the cut
-  // reads as one that is gone (#245).
+  // A truncated rail says so, and — unlike a bare indicator — loads the
+  // rest: the listing is one server page (limit 50 by default), so without
+  // this a session that exists but sorted past the cut reads as one that is
+  // gone (#245).
   if (state.sessionTotal > state.sessions.length) {
     dom.rail.appendChild(
-      el("div", {
-        class: "rail-truncated",
-        text: `showing ${state.sessions.length} of ${state.sessionTotal}`,
-        title: "The session list is capped server-side; filter by agent to narrow it.",
+      el("button", {
+        type: "button",
+        class: "rail-truncated rail-load-more",
+        text: `showing ${state.sessions.length} of ${state.sessionTotal} — load the rest`,
+        title: "Widen the rail to every session; survives refreshes.",
+        onclick: loadAllSessions,
       }),
     );
   }
@@ -1848,12 +1855,19 @@ function closeDrawer() {
 
 async function refreshSessions() {
   try {
-    state.sessions = await api.sessions();
+    state.sessions = await api.sessions(state.sessionLimit);
     clearNotice("sessions");
   } catch (err) {
     setNotice("sessions", `sessions: ${errorText(err)}`);
   }
   scheduleRender();
+}
+
+async function loadAllSessions() {
+  // The poller re-requests whatever limit is set here, so the expanded
+  // rail survives refreshes instead of collapsing on the next poll.
+  state.sessionLimit = Math.max(state.sessionTotal, state.sessions.length);
+  await refreshSessions();
 }
 
 async function refreshApprovals() {

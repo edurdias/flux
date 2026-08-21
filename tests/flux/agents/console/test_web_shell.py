@@ -372,3 +372,20 @@ def test_the_rail_says_when_it_is_showing_a_subset():
     # And the memo has to include it, or the line never re-renders.
     memo = re.search(r'memo\(\s*"rail",\s*\[(.*?)\]', script, re.DOTALL)
     assert memo and "state.sessionTotal" in memo.group(1)
+
+
+def test_the_rail_subset_line_loads_the_rest():
+    """The truncation line used to document itself and stop there, leaving the
+    sessions past the page cut unreachable from the rail. It is now a control:
+    one click widens the page limit and the poller re-requests with it, so the
+    expanded view survives refreshes (#245)."""
+    script = (WEB_DIR / "console.js").read_text()
+
+    rail = re.search(r"function buildRail\(.*?\n}", script, re.DOTALL)
+    assert rail and "onclick: loadAllSessions" in rail.group(0)
+    loader = re.search(r"async function loadAllSessions\(\) \{(.*?)\n}", script, re.DOTALL)
+    assert loader, "loadAllSessions must exist"
+    assert "state.sessionLimit" in loader.group(1)
+    assert "refreshSessions()" in loader.group(1)
+    refresh = re.search(r"async function refreshSessions\(\) \{(.*?)\n}", script, re.DOTALL)
+    assert refresh and "api.sessions(state.sessionLimit)" in refresh.group(1)
