@@ -499,12 +499,12 @@ class ServiceRoutesMixin:
                         token_session.close()
 
                 if mode in ("sync", "stream"):
-                    self._execution_events.setdefault(ctx.execution_id, asyncio.Event())
+                    self.signals.event_for(ctx.execution_id)
 
                 self._notify_next_worker()
 
                 if mode == "sync":
-                    event = self._execution_events[ctx.execution_id]
+                    event = self.signals.event_for(ctx.execution_id)
                     try:
                         while not ctx.has_finished:
                             try:
@@ -514,10 +514,10 @@ class ServiceRoutesMixin:
                             event.clear()
                             ctx = manager.get(ctx.execution_id)
                     finally:
-                        self._execution_events.pop(ctx.execution_id, None)
+                        self.signals.drop_event(ctx.execution_id)
 
                 if mode == "stream":
-                    self._progress_buffers[ctx.execution_id] = asyncio.Queue(maxsize=10000)
+                    self.signals.open_progress_buffer(ctx.execution_id)
                     return EventSourceResponse(
                         self._stream_execution_events(ctx, manager, detailed),
                         media_type="text/event-stream",
@@ -666,12 +666,12 @@ class ServiceRoutesMixin:
                     _rm.record_resume_queued(ctx.workflow_namespace, ctx.workflow_name)
 
                 if mode in ("sync", "stream"):
-                    self._execution_events.setdefault(ctx.execution_id, asyncio.Event())
+                    self.signals.event_for(ctx.execution_id)
 
                 self._notify_next_worker()
 
                 if mode == "sync":
-                    event = self._execution_events[ctx.execution_id]
+                    event = self.signals.event_for(ctx.execution_id)
                     try:
                         while not ctx.has_finished:
                             try:
@@ -681,10 +681,10 @@ class ServiceRoutesMixin:
                             event.clear()
                             ctx = manager.get(ctx.execution_id)
                     finally:
-                        self._execution_events.pop(ctx.execution_id, None)
+                        self.signals.drop_event(ctx.execution_id)
 
                 if mode == "stream":
-                    self._progress_buffers[ctx.execution_id] = asyncio.Queue(maxsize=10000)
+                    self.signals.open_progress_buffer(ctx.execution_id)
                     return EventSourceResponse(
                         self._stream_execution_events(ctx, manager, detailed),
                         media_type="text/event-stream",

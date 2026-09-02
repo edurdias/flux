@@ -19,16 +19,15 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from flux import ExecutionContext
-from flux.catalogs import WorkflowCatalog
+from flux.execution_signals import ExecutionSignals
+from flux.execution_start import create_execution
+from flux.execution_stream import stream_execution_events
 from flux.hooks.dispatch import authorize_hook_principal, start_hook_execution
 from flux.scheduler_loop import SchedulerLoop
 from flux.config import Configuration
 from flux.context_managers import ContextManager
-from flux.errors import WorkflowNotFoundError
 from flux.utils import get_logger
 from flux.servers.uvicorn_server import UvicornServer
-from flux.servers.models import redacted_response
-from flux.utils import to_wire_json
 from flux.security.auth_service import AuthService
 from flux.security.dependencies import init_auth_service
 from flux.security.identity import FluxIdentity
@@ -173,9 +172,10 @@ class Server(
         self._worker_events: dict[str, asyncio.Event] = {}
         self._worker_names: list[str] = []
         self._worker_rr_index = 0
-        self._execution_events: dict[str, asyncio.Event] = {}
-        self._progress_buffers: dict[str, asyncio.Queue] = {}
-        self._execution_queue_times: dict[str, float] = {}
+        # Per-execution waiters, progress buffers and queue timing, with one
+        # vocabulary instead of three dictionaries poked from four modules
+        # (#264 stage 3).
+        self.signals = ExecutionSignals()
         self._worker_last_pong: dict[str, float] = {}
         self._worker_cache: dict[str, WorkerResponse] = {}
         self._worker_offline_since: dict[str, float] = {}
@@ -235,6 +235,50 @@ class Server(
         except Exception:
             logger.warning("Observability setup failed", exc_info=True)
 
+    # Backward compatibility: stage 3 moved these three dictionaries into
+    # ExecutionSignals. Tests and external code still access them directly on
+    # Server; expose them as proxies so the old path keeps working. The
+    # __new__-without-__init__ case (test_server_has_progress_buffers_dict)
+    # must also work, so fall back to instance dict when signals is absent.
+    @property
+    def _execution_events(self) -> dict[str, asyncio.Event]:
+        if "signals" in self.__dict__:
+            return self.signals._events
+        return self.__dict__.get("_execution_events", {})
+
+    @_execution_events.setter
+    def _execution_events(self, value: dict[str, asyncio.Event]) -> None:
+        if "signals" in self.__dict__:
+            self.signals._events = value
+        else:
+            self.__dict__["_execution_events"] = value
+
+    @property
+    def _progress_buffers(self) -> dict[str, asyncio.Queue]:
+        if "signals" in self.__dict__:
+            return self.signals._progress_buffers
+        return self.__dict__.get("_progress_buffers", {})
+
+    @_progress_buffers.setter
+    def _progress_buffers(self, value: dict[str, asyncio.Queue]) -> None:
+        if "signals" in self.__dict__:
+            self.signals._progress_buffers = value
+        else:
+            self.__dict__["_progress_buffers"] = value
+
+    @property
+    def _execution_queue_times(self) -> dict[str, float]:
+        if "signals" in self.__dict__:
+            return self.signals._queued_at
+        return self.__dict__.get("_execution_queue_times", {})
+
+    @_execution_queue_times.setter
+    def _execution_queue_times(self, value: dict[str, float]) -> None:
+        if "signals" in self.__dict__:
+            self.signals._queued_at = value
+        else:
+            self.__dict__["_execution_queue_times"] = value
+
     def _scheduler(self) -> SchedulerLoop:
         """The scheduler tick, built on first use.
 
@@ -246,7 +290,7 @@ class Server(
             self._scheduler_loop_obj = SchedulerLoop(
                 create_execution=self._create_execution,
                 session_factory=self._get_db_session,
-                execution_events=self._execution_events,
+                signals=self.signals,
                 worker_queues=self._worker_queues,
                 hook_starter=_hook_execution_starter(self),
                 hook_authorizer=_hook_authorizer(self),
@@ -491,187 +535,33 @@ class Server(
         park_ttl: int | None = None,
         name: str | None = None,
     ) -> ExecutionContext:
-        workflow = WorkflowCatalog.create().get(namespace, workflow_name, version)
-        if not workflow:
-            raise WorkflowNotFoundError(f"Workflow '{namespace}/{workflow_name}' not found")
-
-        # The sticky-routing hint is written in the same transaction as the
-        # insert: event-mode dispatch can pick a fresh row up immediately.
-        ctx = ContextManager.create().save(
-            ExecutionContext(
-                workflow_id=workflow.id,
-                workflow_namespace=workflow.namespace,
-                workflow_name=workflow.name,
-                input=input_data,
-                requests=workflow.requests,
-                name=name,
-            ),
-            preferred_worker=preferred_worker or None,
-            required_worker=required_worker or None,
-            routing_input=routing_input or None,
+        return create_execution(
+            self.signals,
+            namespace,
+            workflow_name,
+            input_data=input_data,
+            version=version,
+            preferred_worker=preferred_worker,
+            required_worker=required_worker,
+            routing_input=routing_input,
             park_ttl=park_ttl,
             name=name,
         )
 
-        # Every run of a dynamic workflow refreshes its GC clock — this is
-        # the single choke point all run paths (API, call(), run_workflow by
-        # ref or source) pass through, so a frequently used entry can never
-        # be collected just because callers stopped re-registering it.
-        from flux._namespace import RESERVED_DYNAMIC_PREFIX
-
-        if workflow.namespace.startswith(RESERVED_DYNAMIC_PREFIX):
-            from flux.dynamic_workflows import touch_last_used
-
-            touch_last_used(workflow.namespace, workflow.name)
-
-        self._execution_queue_times[ctx.execution_id] = time.monotonic()
-
-        from flux.observability import get_metrics
-
-        m = get_metrics()
-        if m:
-            m.record_workflow_started(ctx.workflow_namespace, ctx.workflow_name)
-            m.record_execution_queued()
-
-        return ctx
-
-    async def _stream_execution_events(
+    def _stream_execution_events(
         self,
         ctx: ExecutionContext,
         manager: ContextManager,
         detailed: bool,
         emit_initial: bool = False,
     ) -> AsyncIterator[dict]:
-        event = self._execution_events[ctx.execution_id]
-        progress_buffer = self._progress_buffers.get(ctx.execution_id)
-        active_tasks: set[asyncio.Task] = set()
-        # Cheap change signal: the loop re-hydrates the full context (all
-        # events, unpickled) only when the persisted event log has actually
-        # advanced past what `ctx` already holds. The hydrated flag (not the
-        # ordinal itself) marks "seen at least once" so an execution with an
-        # empty event log (ordinal None) also skips repeat hydration.
-        #
-        # Whether to *emit* the hydrated context is then decided by the last
-        # event's identity, never by its timestamp. Events are stamped on
-        # whichever machine creates them, so any backwards clock movement — a
-        # worker mid-upgrade, an NTP step — used to make every later event
-        # compare as older; since the ordinal had already advanced past it,
-        # the context was never refreshed again and the stream hung open.
-        last_seen_ordinal: int | None = None
-        hydrated_once = False
-
-        def _get_if_changed() -> ExecutionContext | None:
-            nonlocal last_seen_ordinal, hydrated_once
-            ordinal = manager.last_event_ordinal(ctx.execution_id)
-            if hydrated_once and ordinal == last_seen_ordinal:
-                return None
-            last_seen_ordinal = ordinal
-            hydrated_once = True
-            return manager.get(ctx.execution_id)
-
-        if emit_initial:
-            # Emit the current state immediately so a consumer attaching after
-            # the execution already finished still receives the terminal
-            # frame — the loop below exits at once when ctx.has_finished.
-            yield {
-                "event": f"{ctx.workflow_name}.execution.{ctx.state.value.lower()}",
-                "data": to_wire_json(await redacted_response(ctx, detailed=detailed)),
-            }
-        try:
-            while not ctx.has_finished:
-                if progress_buffer:
-                    progress_task = asyncio.create_task(progress_buffer.get())
-                    checkpoint_task = asyncio.create_task(event.wait())
-                    active_tasks = {progress_task, checkpoint_task}
-
-                    done, pending = await asyncio.wait(
-                        active_tasks,
-                        timeout=30.0,
-                        return_when=asyncio.FIRST_COMPLETED,
-                    )
-                    for t in pending:
-                        t.cancel()
-                    if pending:
-                        await asyncio.gather(*pending, return_exceptions=True)
-                    active_tasks.clear()
-
-                    if not done:
-                        continue
-
-                    if progress_task in done:
-                        item = progress_task.result()
-                        items = [item]
-                        while not progress_buffer.empty():
-                            items.append(progress_buffer.get_nowait())
-                        for p in items:
-                            yield {
-                                "event": "task.progress",
-                                "data": to_wire_json(
-                                    {
-                                        "type": p.type.value,
-                                        "source_id": p.source_id,
-                                        "name": p.name,
-                                        "value": p.value,
-                                        "time": str(p.time),
-                                    },
-                                ),
-                            }
-
-                    if checkpoint_task in done or event.is_set():
-                        event.clear()
-                        new_ctx = _get_if_changed()
-                        if (
-                            new_ctx is not None
-                            and new_ctx.events
-                            and (not ctx.events or new_ctx.events[-1].id != ctx.events[-1].id)
-                        ):
-                            ctx = new_ctx
-                            yield {
-                                "event": f"{ctx.workflow_name}.execution.{ctx.state.value.lower()}",
-                                "data": to_wire_json(
-                                    await redacted_response(ctx, detailed=detailed),
-                                ),
-                            }
-                else:
-                    try:
-                        await asyncio.wait_for(event.wait(), timeout=30.0)
-                    except TimeoutError:
-                        pass
-                    event.clear()
-                    new_ctx = _get_if_changed()
-                    if (
-                        new_ctx is not None
-                        and new_ctx.events
-                        and (not ctx.events or new_ctx.events[-1].id != ctx.events[-1].id)
-                    ):
-                        ctx = new_ctx
-                        yield {
-                            "event": f"{ctx.workflow_name}.execution.{ctx.state.value.lower()}",
-                            "data": to_wire_json(await redacted_response(ctx, detailed=detailed)),
-                        }
-        finally:
-            for t in active_tasks:
-                if not t.done():
-                    t.cancel()
-            if active_tasks:
-                await asyncio.gather(*active_tasks, return_exceptions=True)
-            self._execution_events.pop(ctx.execution_id, None)
-            self._progress_buffers.pop(ctx.execution_id, None)
-            try:
-                from flux.domain import ExecutionState as _ExecutionState
-
-                latest = manager.get(ctx.execution_id)
-                if latest and latest.state == _ExecutionState.RESUME_SCHEDULED:
-                    manager.unclaim(ctx.execution_id)
-                    logger.info(
-                        f"SSE disconnect: reverted {ctx.execution_id} from "
-                        f"RESUME_SCHEDULED back to RESUMING",
-                    )
-            except Exception as exc:
-                logger.warning(
-                    f"Failed to revert RESUME_SCHEDULED on SSE disconnect for "
-                    f"{ctx.execution_id}: {exc}",
-                )
+        return stream_execution_events(
+            self.signals,
+            ctx,
+            manager,
+            detailed,
+            emit_initial=emit_initial,
+        )
 
     # ===========================================
     # Integrated Scheduler Methods
@@ -885,7 +775,7 @@ class Server(
                 unclaimed = context_manager.unclaim(ctx.execution_id)
                 if unclaimed.state in (ExecutionState.PAUSED, ExecutionState.RESUMING):
                     context_manager.release_worker(ctx.execution_id)
-                self._execution_queue_times[ctx.execution_id] = time.monotonic()
+                self.signals.stamp_queued(ctx.execution_id, time.monotonic())
                 m = get_metrics()
                 if m:
                     m.record_execution_queued()
@@ -901,7 +791,7 @@ class Server(
                 logger.info(
                     f"Unclaimed execution {ctx.execution_id} from evicted worker {worker_name}",
                 )
-                event = self._execution_events.get(ctx.execution_id)
+                event = self.signals.event(ctx.execution_id)
                 if event:
                     event.set()
             except Exception as e:
@@ -944,7 +834,7 @@ class Server(
                 continue
             try:
                 # Called directly on the event loop (not via to_thread) because
-                # it sets asyncio.Events (_execution_events, _work_available),
+                # it sets asyncio.Events (signals, _work_available),
                 # which are not thread-safe. This mirrors the local eviction
                 # path, which also invokes it synchronously.
                 self._unclaim_worker_executions(name)

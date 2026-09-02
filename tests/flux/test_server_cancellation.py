@@ -121,7 +121,7 @@ class TestServerCancellation:
 class TestWorkflowEndpoints:
     """Tests for workflow management endpoints."""
 
-    @patch("flux.server.WorkflowCatalog.create")
+    @patch("flux.catalogs.WorkflowCatalog.create")
     def test_workflow_delete(self, mock_catalog_create, test_client):
         """Test deleting a workflow."""
         mock_catalog = MagicMock()
@@ -135,7 +135,7 @@ class TestWorkflowEndpoints:
         assert data["status"] == "success"
         mock_catalog.delete.assert_called_once_with("default", "test_workflow", None)
 
-    @patch("flux.server.WorkflowCatalog.create")
+    @patch("flux.catalogs.WorkflowCatalog.create")
     def test_workflow_delete_specific_version(self, mock_catalog_create, test_client):
         """Test deleting a specific workflow version."""
         mock_catalog = MagicMock()
@@ -147,7 +147,7 @@ class TestWorkflowEndpoints:
         assert response.status_code == 200
         mock_catalog.delete.assert_called_once_with("default", "test_workflow", 2)
 
-    @patch("flux.server.WorkflowCatalog.create")
+    @patch("flux.catalogs.WorkflowCatalog.create")
     def test_workflow_versions_list(self, mock_catalog_create, test_client):
         """Test listing workflow versions."""
         mock_catalog = MagicMock()
@@ -172,7 +172,7 @@ class TestWorkflowEndpoints:
         assert data[0]["version"] == 2
         assert data[1]["version"] == 1
 
-    @patch("flux.server.WorkflowCatalog.create")
+    @patch("flux.catalogs.WorkflowCatalog.create")
     def test_workflow_versions_empty(self, mock_catalog_create, test_client):
         """Test listing versions for non-existent workflow returns 404."""
         mock_catalog = MagicMock()
@@ -185,7 +185,7 @@ class TestWorkflowEndpoints:
         assert response.status_code == 404
         assert "not found" in response.text.lower()
 
-    @patch("flux.server.WorkflowCatalog.create")
+    @patch("flux.catalogs.WorkflowCatalog.create")
     def test_workflow_version_get(self, mock_catalog_create, test_client):
         """Test getting a specific workflow version."""
         mock_catalog = MagicMock()
@@ -216,7 +216,7 @@ class TestWorkflowEndpoints:
         assert data["version"] == 2
         mock_catalog.get.assert_called_once_with("default", "test_workflow", 2)
 
-    @patch("flux.server.WorkflowCatalog.create")
+    @patch("flux.catalogs.WorkflowCatalog.create")
     def test_workflow_version_not_found(self, mock_catalog_create, test_client):
         """Test getting a non-existent workflow version raises WorkflowNotFoundError."""
         from flux.errors import WorkflowNotFoundError
@@ -329,7 +329,7 @@ class TestExecutionEndpoints:
         assert "error" in response.text.lower()
 
     @patch("flux.server.ContextManager.create")
-    @patch("flux.server.WorkflowCatalog.create")
+    @patch("flux.catalogs.WorkflowCatalog.create")
     def test_workflow_executions_list(self, mock_catalog_create, mock_cm_create, test_client):
         """Test listing executions for a specific workflow."""
         # Mock workflow catalog - endpoint checks if workflow exists first
@@ -447,7 +447,7 @@ class TestWorkerEndpoints:
 class TestHealthEndpoint:
     """Tests for health check endpoint."""
 
-    @patch("flux.server.WorkflowCatalog.create")
+    @patch("flux.catalogs.WorkflowCatalog.create")
     def test_health_check_healthy(self, mock_catalog_create, test_client):
         """Test health check when database is healthy."""
         mock_catalog = MagicMock()
@@ -462,7 +462,7 @@ class TestHealthEndpoint:
         assert data["database"] is True
         assert "version" in data
 
-    @patch("flux.server.WorkflowCatalog.create")
+    @patch("flux.catalogs.WorkflowCatalog.create")
     def test_health_check_unhealthy(self, mock_catalog_create, test_client):
         """Test health check when database is unhealthy."""
         mock_catalog = MagicMock()
@@ -546,7 +546,7 @@ class TestAPIEdgeCases:
         assert response.status_code == 400
         assert "invalid state" in response.text.lower()
 
-    @patch("flux.server.WorkflowCatalog.create")
+    @patch("flux.catalogs.WorkflowCatalog.create")
     def test_workflow_delete_handles_exception(self, mock_catalog_create, test_client):
         """Test workflow delete handles database errors gracefully."""
         mock_catalog = MagicMock()
@@ -558,7 +558,7 @@ class TestAPIEdgeCases:
         assert response.status_code == 500
         assert "error" in response.text.lower()
 
-    @patch("flux.server.WorkflowCatalog.create")
+    @patch("flux.catalogs.WorkflowCatalog.create")
     def test_health_check_handles_exception(self, mock_catalog_create, test_client):
         """Test health check returns unhealthy on exception."""
         mock_catalog = MagicMock()
@@ -595,7 +595,7 @@ class TestAPIEdgeCases:
         assert response.status_code == 200
         assert response.json() == []
 
-    @patch("flux.server.WorkflowCatalog.create")
+    @patch("flux.catalogs.WorkflowCatalog.create")
     def test_workflow_versions_handles_exception(self, mock_catalog_create, test_client):
         """Test workflow versions handles errors gracefully."""
         mock_catalog = MagicMock()
@@ -608,7 +608,7 @@ class TestAPIEdgeCases:
         assert "error" in response.text.lower()
 
     @patch("flux.server.ContextManager.create")
-    @patch("flux.server.WorkflowCatalog.create")
+    @patch("flux.catalogs.WorkflowCatalog.create")
     def test_workflow_executions_not_found(self, mock_catalog_create, mock_cm_create, test_client):
         """Test listing executions for non-existent workflow returns 404."""
         from flux.errors import WorkflowNotFoundError
@@ -623,7 +623,7 @@ class TestAPIEdgeCases:
         assert "not found" in response.text.lower()
 
     @patch("flux.server.ContextManager.create")
-    @patch("flux.server.WorkflowCatalog.create")
+    @patch("flux.catalogs.WorkflowCatalog.create")
     def test_workflow_executions_invalid_state(
         self,
         mock_catalog_create,
@@ -646,7 +646,7 @@ class TestWorkflowRunWithVersion:
     """Tests for running workflows with specific version."""
 
     @patch("flux.server.ContextManager.create")
-    @patch("flux.server.WorkflowCatalog.create")
+    @patch("flux.catalogs.WorkflowCatalog.create")
     def test_run_workflow_latest_version(self, mock_catalog_create, mock_cm_create, test_client):
         """Test running workflow without version uses latest."""
         # Setup workflow mock
@@ -682,7 +682,7 @@ class TestWorkflowRunWithVersion:
         mock_catalog.get.assert_called_once_with("default", "test_workflow", None)
 
     @patch("flux.server.ContextManager.create")
-    @patch("flux.server.WorkflowCatalog.create")
+    @patch("flux.catalogs.WorkflowCatalog.create")
     def test_run_workflow_specific_version(self, mock_catalog_create, mock_cm_create, test_client):
         """Test running workflow with specific version."""
         # Setup workflow mock
@@ -719,7 +719,7 @@ class TestWorkflowRunWithVersion:
         mock_catalog.get.assert_called_once_with("default", "test_workflow", 2)
 
     @patch("flux.server.ContextManager.create")
-    @patch("flux.server.WorkflowCatalog.create")
+    @patch("flux.catalogs.WorkflowCatalog.create")
     def test_run_workflow_version_not_found(self, mock_catalog_create, mock_cm_create, test_client):
         """Test running workflow with non-existent version returns 404."""
         from flux.errors import WorkflowNotFoundError

@@ -924,12 +924,12 @@ class WorkerRoutesMixin:
 
                 m = get_metrics()
                 if m and not is_resume_claim:
-                    queued_at = self._execution_queue_times.pop(execution_id, None)
+                    queued_at = self.signals.take_queued_at(execution_id)
                     schedule_to_start = time.monotonic() - queued_at if queued_at else None
                     m.record_execution_claimed(schedule_to_start)
 
                 # Notify any waiting sync/stream endpoint
-                event = self._execution_events.get(execution_id)
+                event = self.signals.event(execution_id)
                 if event:
                     event.set()
 
@@ -1005,7 +1005,7 @@ class WorkerRoutesMixin:
                 logger.debug(f"Checkpoint saved for {execution_id}, state: {ctx.state.value}")
 
                 if ctx.has_finished:
-                    self._execution_queue_times.pop(execution_id, None)
+                    self.signals.take_queued_at(execution_id)
                     # A finished execution frees one of the worker's capacity
                     # slots — wake dispatch so any work that was held back by
                     # a full fleet gets assigned now.
@@ -1014,7 +1014,7 @@ class WorkerRoutesMixin:
                 # Notify any waiting sync/stream endpoint — locally, and on
                 # other replicas via NOTIFY when the state is one a caller
                 # blocks on (the waiter re-reads the row either way).
-                event = self._execution_events.get(execution_id)
+                event = self.signals.event(execution_id)
                 if event:
                     event.set()
                 if self._dispatcher is not None and (ctx.has_finished or ctx.is_paused):
@@ -1253,7 +1253,7 @@ class WorkerRoutesMixin:
             self._verify_worker_identity(identity, name)
             self._worker_last_pong[name] = time.monotonic()
 
-            buffer = self._progress_buffers.get(execution_id)
+            buffer = self.signals.progress_buffer(execution_id)
             if not buffer:
                 return {"status": "ok"}
 
