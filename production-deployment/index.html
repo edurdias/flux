@@ -1812,7 +1812,8 @@ approval rows.</p>
   network-less, so the LLM SDKs and Postgres driver in the default image are
   surface it cannot use (see Installation → Container images). Optional knobs: <code>docker_network</code> / <code>docker_memory</code> /
   <code>docker_cpus</code> / <code>docker_extra_args</code> (volumes, env, <code>--user</code>,
-  <code>--cap-drop</code>). Use it for untrusted code,
+  <code>--cap-drop</code>), and <code>docker_container_cli</code> (<code>docker</code> | <code>podman</code> |
+  <code>nerdctl</code>) for hosts that ship only rootless podman or nerdctl. Use it for untrusted code,
   conflicting dependency sets, or filesystem isolation. Workers advertising
   <code>docker</code> must have a reachable daemon — the worker fails at startup
   otherwise. <strong>Precompile bytecode in the image</strong>
