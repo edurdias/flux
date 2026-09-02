@@ -18,11 +18,13 @@ flux-core version (see DOCKER.md). Workers enable it explicitly:
 Container CLI compatibility
 ---------------------------
 
-The airgapped runner can drive rootless Podman or nerdctl instead of the
-docker CLI via ``[flux.workers] airgapped_container_cli`` (a named config
-key, like every other airgapped grant, so the config file stays the audit
-trail). The runner relies on the following argv-compatible surface, which
-all three CLIs implement with docker semantics:
+Both runners can drive rootless Podman or nerdctl instead of the docker CLI,
+each through its own named config key: ``[flux.workers]
+docker_container_cli`` for this runner and ``airgapped_container_cli`` for
+the airgapped one (a named key, like every other airgapped grant, so the
+config file stays the audit trail). The runners rely on the following
+argv-compatible surface, which all three CLIs implement with docker
+semantics:
 
 - ``run -i --rm --name`` with implicit signal proxying (sig-proxy is the
   default without a TTY in docker, podman, and nerdctl — SIGTERM reaches
@@ -71,6 +73,10 @@ class DockerRunner(SubprocessRunner):
 
     name = "docker"
 
+    # The config key that feeds `cli`, so a rejection names the setting the
+    # operator actually wrote rather than the airgapped runner's key.
+    container_cli_setting = "docker_container_cli"
+
     def __init__(
         self,
         image: str,
@@ -89,7 +95,7 @@ class DockerRunner(SubprocessRunner):
             )
         if cli not in SUPPORTED_CONTAINER_CLIS:
             raise ValueError(
-                f"[flux.workers] airgapped_container_cli '{cli}' is not "
+                f"[flux.workers] {self.container_cli_setting} '{cli}' is not "
                 f"supported; choose one of: {', '.join(SUPPORTED_CONTAINER_CLIS)}",
             )
         self._image = image
@@ -466,6 +472,8 @@ class AirgappedDockerRunner(DockerRunner):
     """
 
     name = "docker-airgapped"
+
+    container_cli_setting = "airgapped_container_cli"
 
     def __init__(
         self,

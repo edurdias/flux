@@ -83,6 +83,7 @@ def create_runners(names: list[str], config) -> dict[str, Runner]:
                 memory=config.docker_memory,
                 cpus=config.docker_cpus,
                 extra_args=list(config.docker_extra_args),
+                cli=config.docker_container_cli,
             )
         elif name == "docker-airgapped":
             from flux.runners.docker import AirgappedDockerRunner
