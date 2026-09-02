@@ -232,3 +232,54 @@ def test_matches_labels_empty_worker_labels():
 
 def test_matches_labels_both_empty():
     assert ResourceRequest.matches_labels({}, {})
+
+
+def test_matches_worker_gpu_with_unreadable_memory():
+    """A GPU whose driver cannot report memory still satisfies a gpu request.
+
+    Unified-memory parts (GB10 / DGX Spark) answer [N/A] for every memory
+    field, so the worker registers them with None. Reading that as zero would
+    hide a real accelerator from every gpu request (issue #284).
+    """
+    request = ResourceRequest(gpu=1)
+
+    unified_memory_worker = WorkerResourcesInfo(
+        cpu_total=20,
+        cpu_available=18,
+        memory_total=120 * 1024 * 1024 * 1024,
+        memory_available=100 * 1024 * 1024 * 1024,
+        disk_total=1024 * 1024 * 1024 * 1024,
+        disk_free=900 * 1024 * 1024 * 1024,
+        gpus=[
+            WorkerResouceGPUInfo(
+                name="NVIDIA GB10",
+                memory_total=None,
+                memory_available=None,
+            ),
+        ],
+    )
+
+    assert request.matches_worker(unified_memory_worker, [])
+
+
+def test_matches_worker_gpu_exhausted_is_still_unavailable():
+    """Unknown memory counts, but a reported-zero GPU must not."""
+    request = ResourceRequest(gpu=1)
+
+    exhausted = WorkerResourcesInfo(
+        cpu_total=4,
+        cpu_available=3,
+        memory_total=8 * 1024 * 1024 * 1024,
+        memory_available=6 * 1024 * 1024 * 1024,
+        disk_total=100 * 1024 * 1024 * 1024,
+        disk_free=80 * 1024 * 1024 * 1024,
+        gpus=[
+            WorkerResouceGPUInfo(
+                name="NVIDIA GeForce RTX 3080",
+                memory_total=10 * 1024 * 1024 * 1024,
+                memory_available=0,
+            ),
+        ],
+    )
+
+    assert not request.matches_worker(exhausted, [])

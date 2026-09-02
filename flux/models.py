@@ -431,13 +431,15 @@ class WorkerResourcesGPUModel(Base):
 
     id = Column(String, primary_key=True, unique=True, nullable=False, default=lambda: uuid4().hex)
     name = Column(String, nullable=False)
-    memory_total = Column(BigInteger, nullable=False)
-    memory_available = Column(BigInteger, nullable=False)
+    # Nullable since 0029: a GPU whose driver reports [N/A] memory registers
+    # with NULL rather than blocking the worker from joining (issue #284).
+    memory_total = Column(BigInteger, nullable=True)
+    memory_available = Column(BigInteger, nullable=True)
 
     resources_id = Column(String, ForeignKey("worker_resources.id"), nullable=False)
     resources = relationship("WorkerResourcesModel", back_populates="gpus")
 
-    def __init__(self, name: str, memory_total: int, memory_available: int):
+    def __init__(self, name: str, memory_total: int | None, memory_available: int | None):
         self.name = name
         self.memory_total = memory_total
         self.memory_available = memory_available

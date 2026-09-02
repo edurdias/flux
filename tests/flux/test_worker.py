@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import json
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -481,6 +482,49 @@ class TestWorker:
             assert gpus[0]["name"] == "NVIDIA GeForce RTX 3080"
             assert gpus[0]["memory_total"] == 10240
             assert gpus[0]["memory_available"] == 8192
+
+    @pytest.mark.asyncio
+    async def test_get_gpu_info_sanitizes_unreadable_memory(self, worker):
+        """A GB10-style [N/A] memory read must not poison the payload.
+
+        GPUtil parses nvidia-smi's [N/A] into nan, and json.dumps refuses it,
+        which killed worker registration outright (issue #284). The GPU is
+        still reported: only the unreadable numbers become None.
+        """
+        mock_gpu = MagicMock()
+        mock_gpu.name = "NVIDIA GB10"
+        mock_gpu.memoryTotal = float("nan")
+        mock_gpu.memoryFree = float("nan")
+
+        mock_gputil = MagicMock()
+        mock_gputil.getGPUs.return_value = [mock_gpu]
+
+        with patch.dict("sys.modules", {"GPUtil": mock_gputil}):
+            gpus = await worker._get_gpu_info()
+
+        assert gpus == [
+            {"name": "NVIDIA GB10", "memory_total": None, "memory_available": None},
+        ]
+        # The regression is at serialization time, so assert on that directly.
+        assert json.dumps({"gpus": gpus}, allow_nan=False)
+
+    @pytest.mark.asyncio
+    async def test_get_gpu_info_sanitizes_infinite_memory(self, worker):
+        """inf is as unserializable as nan; both mean 'unreadable' here."""
+        mock_gpu = MagicMock()
+        mock_gpu.name = "NVIDIA GB10"
+        mock_gpu.memoryTotal = float("inf")
+        mock_gpu.memoryFree = 4096
+
+        mock_gputil = MagicMock()
+        mock_gputil.getGPUs.return_value = [mock_gpu]
+
+        with patch.dict("sys.modules", {"GPUtil": mock_gputil}):
+            gpus = await worker._get_gpu_info()
+
+        assert gpus[0]["memory_total"] is None
+        assert gpus[0]["memory_available"] == 4096
+        assert json.dumps({"gpus": gpus}, allow_nan=False)
 
     @pytest.mark.asyncio
     async def test_get_installed_packages(self, worker):
