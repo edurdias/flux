@@ -703,19 +703,28 @@ class FluxConfig(BaseSettings):
     )
     database_pool_size: int = Field(
         default=20,
-        description="Database connection pool size (PostgreSQL only)",
+        description=(
+            "Database connection pool size (PostgreSQL only). With "
+            "database_max_overflow this is the ceiling that "
+            "database_executor_threads should stay under"
+        ),
     )
     database_max_overflow: int = Field(
         default=20,
         description="Maximum pool overflow (PostgreSQL only)",
     )
     database_executor_threads: int = Field(
-        default=16,
+        default=32,
         description=(
             "Size of the server's thread pool for blocking database calls "
-            "(asyncio.to_thread). Size it at or below the connection pool so "
-            "threads never block waiting for a connection. 0 keeps the "
-            "asyncio default executor."
+            "(asyncio.to_thread). Every blocking DB call on the server shares "
+            "it: claims, checkpoints, progress writes, and the dispatcher. "
+            "Size it against expected concurrent executions, and at or below "
+            "database_pool_size + database_max_overflow so threads never "
+            "block waiting for a connection. A pool smaller than the "
+            "concurrency shows up as claim latency that grows with load and a "
+            "long tail rather than as an error (#287). 0 keeps the asyncio "
+            "default executor."
         ),
     )
     database_pool_timeout: int = Field(

@@ -238,8 +238,7 @@ class Dispatcher:
                     unmatched=unmatched,
                 ),
             )
-            for ctx, worker_name in assignments:
-                await self._deliver(manager, ctx, worker_name, "execution_scheduled")
+            await self._deliver_all(manager, assignments, "execution_scheduled")
             unplaceable |= unmatched
             selected = len(assignments) + len(unmatched)
             scanned += selected
@@ -254,8 +253,7 @@ class Dispatcher:
             workers,
             self._batch_size,
         )
-        for ctx, worker_name in resumes:
-            await self._deliver(manager, ctx, worker_name, "execution_resumed")
+        await self._deliver_all(manager, resumes, "execution_resumed")
 
         cancellations = await asyncio.to_thread(
             manager.next_cancellations_batch,
@@ -278,14 +276,49 @@ class Dispatcher:
                 ),
             )
 
-    async def _deliver(self, manager, ctx, worker_name: str, event: str):
+    async def _deliver_all(self, manager, assignments, event: str) -> None:
+        """Deliver a batch, building the payloads concurrently.
+
+        Awaiting each delivery in turn made the batch cost the sum of its
+        payload builds, and each build is a catalog read plus an exec-token
+        read on a pool thread. The last execution in a batch of N therefore
+        waited behind N-1 builds before its frame was even enqueued, which is
+        one of the terms making claim latency grow with concurrency (#287).
+
+        Only the build is parallel. Enqueueing stays sequential and in the
+        original order, so a worker still sees its frames in dispatch order.
+        """
+        if not assignments:
+            return
+        if len(assignments) == 1:
+            ctx, worker_name = assignments[0]
+            await self._deliver(manager, ctx, worker_name, event)
+            return
+
+        payloads = await asyncio.gather(
+            *(
+                asyncio.to_thread(self._server._build_dispatch_payload, ctx)
+                for ctx, _ in assignments
+            ),
+            return_exceptions=True,
+        )
+        for (ctx, worker_name), payload in zip(assignments, payloads):
+            # A build that raised is released the same way _deliver releases
+            # it, by replaying that execution through the single path.
+            if isinstance(payload, BaseException):
+                await self._deliver(manager, ctx, worker_name, event)
+                continue
+            await self._deliver(manager, ctx, worker_name, event, payload=payload)
+
+    async def _deliver(self, manager, ctx, worker_name: str, event: str, payload=None):
         """Build the dispatch payload and enqueue it on the worker's SSE queue.
 
         If the worker's queue vanished (disconnect race) or the payload build
         fails, release the execution so another worker picks it up.
         """
         try:
-            payload = await asyncio.to_thread(self._server._build_dispatch_payload, ctx)
+            if payload is None:
+                payload = await asyncio.to_thread(self._server._build_dispatch_payload, ctx)
             queue = self._server._worker_queues.get(worker_name)
             if queue is None:
                 raise RuntimeError(f"worker {worker_name} disconnected before delivery")
