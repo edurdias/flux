@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import math
 import os
 import platform
 import random
@@ -30,6 +31,24 @@ from flux.runners.base import RunnerHooks
 from flux.utils import get_logger
 
 logger = get_logger(__name__)
+
+
+def _finite_or_none(value) -> float | None:
+    """Drop NaN/inf so the registration payload stays JSON-serializable.
+
+    Unified-memory parts (GB10/DGX Spark) make nvidia-smi answer ``[N/A]`` for
+    every memory field, which GPUtil parses into ``nan``. Serializing that
+    killed registration outright, and the worker never joined the mesh
+    (issue #284). ``None`` means unreadable, which is not the same claim as
+    zero: a GPU with unknown memory still counts toward a gpu request.
+    """
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
 
 
 def _report_monitor_exit(task: asyncio.Task) -> None:
@@ -1866,14 +1885,21 @@ class Worker:
         logger.debug(f"Found {len(gpu_devices)} GPU devices")
 
         for i, gpu in enumerate(gpu_devices):
+            memory_total = _finite_or_none(gpu.memoryTotal)
+            memory_available = _finite_or_none(gpu.memoryFree)
+            if memory_total is None or memory_available is None:
+                logger.debug(
+                    f"GPU {i + 1}: {gpu.name} reports unreadable memory "
+                    "(nvidia-smi [N/A]); registering it with unknown memory",
+                )
             logger.debug(
-                f"GPU {i + 1}: {gpu.name}, Memory: {gpu.memoryTotal}MB, Free: {gpu.memoryFree}MB",
+                f"GPU {i + 1}: {gpu.name}, Memory: {memory_total}MB, Free: {memory_available}MB",
             )
             gpus.append(
                 {
                     "name": gpu.name,
-                    "memory_total": gpu.memoryTotal,
-                    "memory_available": gpu.memoryFree,
+                    "memory_total": memory_total,
+                    "memory_available": memory_available,
                 },
             )
         return gpus

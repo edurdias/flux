@@ -171,8 +171,15 @@ class ResourceRequest:
         if not hasattr(worker_resources, "gpus") or not worker_resources.gpus:
             return False
 
-        # Count available GPUs (with available memory)
-        available_gpus = sum(1 for gpu in worker_resources.gpus if gpu.memory_available > 0)
+        # Count available GPUs (with available memory). Unreadable memory
+        # (None) counts as available: unified-memory parts report [N/A] for
+        # every memory field, and treating that as zero would silently hide a
+        # real GPU from every gpu request (issue #284).
+        available_gpus = sum(
+            1
+            for gpu in worker_resources.gpus
+            if gpu.memory_available is None or gpu.memory_available > 0
+        )
         return available_gpus >= self.gpu
 
     def _check_package_requirements(self, worker_packages: list[dict[str, str]]) -> bool:

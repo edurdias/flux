@@ -30,8 +30,8 @@ class WorkerResouceGPUInfo:
     def __init__(
         self,
         name: str,
-        memory_total: int,
-        memory_available: int,
+        memory_total: int | None,
+        memory_available: int | None,
     ):
         self.name = name
         self.memory_total = memory_total

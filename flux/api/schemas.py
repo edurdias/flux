@@ -64,8 +64,10 @@ class WorkerRuntimeModel(BaseModel):
 
 class WorkerGPUModel(BaseModel):
     name: str
-    memory_total: float
-    memory_available: float
+    # None means the driver could not read the value (unified-memory parts
+    # report [N/A]); it is not a claim of zero memory. See issue #284.
+    memory_total: float | None = None
+    memory_available: float | None = None
 
 
 class WorkerResourcesModel(BaseModel):
