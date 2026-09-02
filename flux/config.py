@@ -202,6 +202,18 @@ class WorkersConfig(BaseConfig):
             "(e.g. volumes, env vars, --user)"
         ),
     )
+    docker_container_cli: str = Field(
+        default="docker",
+        description=(
+            "Container CLI the docker runner drives: 'docker', 'podman', or "
+            "'nerdctl'. The airgapped runner has the same key of its own "
+            "(airgapped_container_cli); a worker image shipping only rootless "
+            "podman needed this one to enable the plain runner at all. The "
+            "runner emits the same argv for all three (see "
+            "flux/runners/docker.py for the compatibility set); validated at "
+            "worker startup"
+        ),
+    )
     airgapped_image: str = Field(
         default="",
         description=(

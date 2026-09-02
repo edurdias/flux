@@ -79,6 +79,7 @@ class TestDockerCommand:
             docker_memory="256m",
             docker_cpus=2.0,
             docker_extra_args=["--user", "1000"],
+            docker_container_cli="docker",
         )
         with patch.object(DockerRunner, "_verify_cli_available"):
             runners = create_runners(["docker"], config)
@@ -86,6 +87,44 @@ class TestDockerCommand:
         command = runners["docker"]._build_command("c")
         assert "registry/flux:1" in command
         assert "--user" in command
+
+    def test_create_runners_wires_docker_container_cli(self):
+        """A host shipping only rootless podman must be able to enable 'docker'.
+
+        The plain runner had no key of its own, so it always shelled out to
+        'docker' and failed at startup on such a host (issue #280).
+        """
+        from flux.runners import create_runners
+
+        config = MagicMock(
+            module_cache_ttl=0,
+            module_cache_max_size=8,
+            subprocess_term_grace=5.0,
+            subprocess_memory_limit=0,
+            docker_image="registry/flux:1",
+            docker_network="",
+            docker_memory="",
+            docker_cpus=0.0,
+            docker_extra_args=[],
+            docker_container_cli="podman",
+        )
+        with patch.object(DockerRunner, "_verify_cli_available"):
+            runners = create_runners(["docker"], config)
+
+        assert runners["docker"]._build_command("c")[0] == "podman"
+
+    def test_unsupported_container_cli_rejected_by_its_own_key(self):
+        """The rejection must name the key the operator actually wrote."""
+        with pytest.raises(ValueError, match="docker_container_cli 'containerd'"):
+            with patch.object(DockerRunner, "_verify_cli_available"):
+                DockerRunner(image="flux:test", cli="containerd")
+
+    def test_airgapped_unsupported_cli_still_names_the_airgapped_key(self):
+        from flux.runners.docker import AirgappedDockerRunner
+
+        with pytest.raises(ValueError, match="airgapped_container_cli 'containerd'"):
+            with patch.object(DockerRunner, "_verify_cli_available"):
+                AirgappedDockerRunner(image="flux:test", container_cli="containerd")
 
 
 @pytest.mark.skipif(
