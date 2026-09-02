@@ -17,8 +17,11 @@ database_url = "sqlite:///.flux/flux.db"                            # Database U
 # For PostgreSQL with environment variables:
 # database_url = "postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}"
 # database_type = "postgresql"
-# database_pool_size = 10
+# database_pool_size = 20
 # database_max_overflow = 20
+# database_executor_threads = 32                                    # Threads for blocking DB calls; keep <= pool_size + max_overflow
+#                                                                   # and size against expected concurrent executions: too few shows
+#                                                                   # up as claim latency growing with load, not as an error
 
 [flux.workers]
 # bootstrap_token = "<set explicitly OR omit to let the server auto-generate>"

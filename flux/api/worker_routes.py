@@ -882,8 +882,19 @@ class WorkerRoutesMixin:
             try:
                 logger.debug(f"Worker {name} claiming execution: {execution_id}")
                 self._verify_worker_identity(identity, name)
-                registry = WorkerRegistry.create()
-                worker = registry.get(name)
+                # The claim path reads nothing but worker.name (see
+                # ExecutionContext.claim / resume_claim), yet registry.get
+                # loads the worker row plus its packages relationship -- every
+                # installed distribution -- and it ran unthreaded, blocking the
+                # whole event loop once per claim (#287). A worker that can
+                # claim is by definition connected, so the info is already in
+                # memory; the DB read stays as the fallback for a claim that
+                # lands on a replica other than the one holding the stream.
+                cached = self._worker_info.get(name)
+                worker = cached if isinstance(cached, WorkerInfo) else None
+                if worker is None:
+                    registry = WorkerRegistry.create()
+                    worker = await asyncio.to_thread(registry.get, name)
                 context_manager = ContextManager.create()
 
                 try:

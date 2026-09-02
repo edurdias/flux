@@ -42,10 +42,19 @@ review (`docs/production-readiness-review.md`).
    ```
 6. **Size the database pool and executor together.** Defaults are
    `database_pool_size=20`, `database_max_overflow=20`,
-   `database_executor_threads=16` per replica. Keep executor ≤ pool so DB
+   `database_executor_threads=32` per replica. Keep executor ≤ pool so DB
    threads never block waiting for a connection, and give PostgreSQL
    `max_connections ≥ replicas × (pool_size + max_overflow) + workers' LISTEN
    connections + headroom`.
+
+   Size the executor against **expected concurrent executions**, not just the
+   pool. It is the default executor for every blocking DB call on the server:
+   claims, checkpoints, progress writes, and the dispatcher all share it, so a
+   busy execution occupies threads for its whole life and a claim queues
+   behind that traffic. Undersizing does not error; it shows up as claim
+   latency that grows with concurrency and a long tail. A measured example is
+   in issue #287: at 16 concurrent executions, raising the executor from 16 to
+   64 and the pool from 20 to 40 cut p95 claim latency from 4.5 s to 1.0 s.
 7. **Registration rate limit.** `/workers/register` validates the shared
    bootstrap token and is limited to `30/minute` per client IP by default.
    Large fleets restarting behind one NAT need it raised
