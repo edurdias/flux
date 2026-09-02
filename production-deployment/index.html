@@ -1498,27 +1498,35 @@ review (<code>docs/production-readiness-review.md</code>).</p>
 </code></pre></div></li>
 <li><strong>Size the database pool and executor together.</strong> Defaults are
    <code>database_pool_size=20</code>, <code>database_max_overflow=20</code>,
-   <code>database_executor_threads=16</code> per replica. Keep executor ≤ pool so DB
+   <code>database_executor_threads=32</code> per replica. Keep executor ≤ pool so DB
    threads never block waiting for a connection, and give PostgreSQL
    <code>max_connections ≥ replicas × (pool_size + max_overflow) + workers' LISTEN
    connections + headroom</code>.</li>
-<li><strong>Registration rate limit.</strong> <code>/workers/register</code> validates the shared
+</ol>
+<p>Size the executor against <strong>expected concurrent executions</strong>, not just the
+   pool. It is the default executor for every blocking DB call on the server:
+   claims, checkpoints, progress writes, and the dispatcher all share it, so a
+   busy execution occupies threads for its whole life and a claim queues
+   behind that traffic. Undersizing does not error; it shows up as claim
+   latency that grows with concurrency and a long tail. A measured example is
+   in issue #287: at 16 concurrent executions, raising the executor from 16 to
+   64 and the pool from 20 to 40 cut p95 claim latency from 4.5 s to 1.0 s.
+7. <strong>Registration rate limit.</strong> <code>/workers/register</code> validates the shared
    bootstrap token and is limited to <code>30/minute</code> per client IP by default.
    Large fleets restarting behind one NAT need it raised
    (<code>FLUX_WORKERS__REGISTER_RATE_LIMIT=300/minute</code>) — or run the server
-   behind a proxy that forwards real client IPs (uvicorn <code>--proxy-headers</code>).</li>
-<li><strong>Probes.</strong> Point liveness at <code>GET /health</code> and readiness at
+   behind a proxy that forwards real client IPs (uvicorn <code>--proxy-headers</code>).
+8. <strong>Probes.</strong> Point liveness at <code>GET /health</code> and readiness at
    <code>GET /ready</code>. <code>/ready</code> performs a database round-trip and returns 503
    when the DB is unreachable — wire it to load-balancer membership, not
-   restarts, so a DB blip drains traffic instead of bouncing pods.</li>
-<li><strong>Bootstrap token custody.</strong> The worker bootstrap token is a fleet-wide
+   restarts, so a DB blip drains traffic instead of bouncing pods.
+9. <strong>Bootstrap token custody.</strong> The worker bootstrap token is a fleet-wide
    join secret: anyone holding it can register a worker (and workers receive
    workflow source and secrets). Set it explicitly
    (<code>FLUX_WORKERS__BOOTSTRAP_TOKEN</code>), store it in your secret manager, and
    rotate it deliberately — rotation invalidates the whole fleet's ability
-   to re-register until workers get the new value.</li>
-<li>
-<p><strong>Prefer one-time join tokens, bound to a worker name.</strong> Instead of sharing
+   to re-register until workers get the new value.
+10. <strong>Prefer one-time join tokens, bound to a worker name.</strong> Instead of sharing
     the fleet secret with every new worker, mint a single-use, short-lived
     token per registration: <code>flux server join-token --subject &lt;worker-name&gt;</code>
     (or <code>POST /admin/workers/join-tokens</code> with <code>admin:workers:manage</code> and a
@@ -1527,8 +1535,8 @@ review (<code>docs/production-readiness-review.md</code>).</p>
     <code>[flux.workers] join_token_ttl</code> (default 3600s). Once the fleet has
     migrated, set <code>[flux.workers] bootstrap_token_enabled = false</code> so the
     shared secret stops being a registration credential.</p>
-<p>Always pass <code>--subject</code>. A token minted without one is <strong>unbound</strong>: it
-authorizes registration under <em>any</em> worker name, and registering an
+<div class="highlight"><pre><span></span><code>Always pass `--subject`. A token minted without one is **unbound**: it
+authorizes registration under *any* worker name, and registering an
 existing name revokes that worker's API keys and issues fresh ones to the
 caller. An unbound token in the wrong hands is therefore enough to evict a
 running worker and inherit the admin-written metadata attached to its
@@ -1536,11 +1544,12 @@ name. Binding is verified when the token is claimed, and a mismatched name
 does not consume the token, so a wrong guess cannot burn a legitimate
 worker's credential. Tokens minted before this check existed have no
 subject and stay unbound — re-mint them.
-11. <strong>Request body cap.</strong> The server rejects request bodies over
-<code>server_max_body_size</code> (default 64 MiB) with 413 — declared or streamed.
-Raise it only if your workflows legitimately ship larger inputs/outputs
-through checkpoints.</p>
-</li>
+</code></pre></div>
+<ol>
+<li><strong>Request body cap.</strong> The server rejects request bodies over
+    <code>server_max_body_size</code> (default 64 MiB) with 413 — declared or streamed.
+    Raise it only if your workflows legitimately ship larger inputs/outputs
+    through checkpoints.</li>
 </ol>
 <h2 id="event-store-durability">Event-store durability<a class="headerlink" href="#event-store-durability" title="Permanent link">&para;</a></h2>
 <p>What "the engine persisted it" means, precisely, and where the line sits
