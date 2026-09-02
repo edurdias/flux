@@ -17,6 +17,7 @@ from datetime import timezone
 import pytest
 from typing import Literal
 
+from flux.execution_signals import ExecutionSignals
 from flux.domain.events import ExecutionEvent
 from flux.domain.events import ExecutionEventType
 from flux.domain.events import ExecutionState
@@ -33,6 +34,20 @@ class _TickingEvent(asyncio.Event):
 
     def clear(self) -> None:
         pass
+
+
+def _signals_with(event, buffer=None) -> ExecutionSignals:
+    """An ExecutionSignals pre-seeded with the fakes this test drives.
+
+    The event has to be the _TickingEvent (nothing else advances the loop),
+    and ExecutionSignals deliberately exposes no setter for it, so the
+    fixture seeds the state directly.
+    """
+    signals = ExecutionSignals()
+    signals._events["exec-1"] = event
+    if buffer is not None:
+        signals._progress_buffers["exec-1"] = buffer
+    return signals
 
 
 class _FakeManager:
@@ -83,8 +98,7 @@ async def test_stream_emits_terminal_frame_when_the_clock_moves_backwards():
     assert completed.has_finished
 
     server = Server.__new__(Server)
-    server._execution_events = {"exec-1": _TickingEvent()}
-    server._progress_buffers = {}
+    server.signals = _signals_with(_TickingEvent())
 
     frames = []
 
@@ -113,8 +127,7 @@ async def test_stream_does_not_re_emit_an_unchanged_log():
     finished = _ctx(ExecutionState.COMPLETED, events)
 
     server = Server.__new__(Server)
-    server._execution_events = {"exec-1": _TickingEvent()}
-    server._progress_buffers = {}
+    server.signals = _signals_with(_TickingEvent())
 
     frames = []
 

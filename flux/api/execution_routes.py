@@ -255,7 +255,9 @@ class ExecutionRoutesMixin:
 
                 if mode == "stream":
                     self.signals.event_for(ctx.execution_id)
-                    self.signals.open_progress_buffer(ctx.execution_id)
+                    # Attach, not launch: a stream already running on this
+                    # execution keeps its buffer rather than being orphaned.
+                    self.signals.ensure_progress_buffer(ctx.execution_id)
                     return EventSourceResponse(
                         self._stream_execution_events(
                             ctx,

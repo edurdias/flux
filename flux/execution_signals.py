@@ -57,14 +57,36 @@ class ExecutionSignals:
     # -- progress buffers ------------------------------------------------
 
     def open_progress_buffer(self, execution_id: str) -> asyncio.Queue:
-        """A bounded buffer for one streaming consumer.
+        """A fresh bounded buffer, replacing any buffer already open.
+
+        For the endpoints that *start* an execution and then stream it: the
+        new stream owns the frames of the run it just launched, so a buffer
+        left behind by an earlier attach is discarded rather than inherited.
+        Attaching to an execution already running is the other case, and
+        goes through ``ensure_progress_buffer``.
 
         Bounded because progress frames are an overlay on the persisted
-        log: dropping the oldest under pressure loses a frame the consumer
-        can re-derive, while growing without limit loses the process.
+        log: the producer drops the frame it cannot fit
+        (``api/worker_routes.py::workers_progress``), which loses a value
+        the consumer can re-derive, while growing without limit loses the
+        process.
         """
         buffer: asyncio.Queue = asyncio.Queue(maxsize=PROGRESS_BUFFER_MAX)
         self._progress_buffers[execution_id] = buffer
+        return buffer
+
+    def ensure_progress_buffer(self, execution_id: str) -> asyncio.Queue:
+        """The execution's buffer, created only if none is open.
+
+        For attaching to an execution that may already have a stream: the
+        consumers share one buffer instead of the newcomer silently
+        orphaning the incumbent, whose ``get()`` is parked on a queue the
+        producer would no longer write to.
+        """
+        buffer = self._progress_buffers.get(execution_id)
+        if buffer is None:
+            buffer = asyncio.Queue(maxsize=PROGRESS_BUFFER_MAX)
+            self._progress_buffers[execution_id] = buffer
         return buffer
 
     def progress_buffer(self, execution_id: str) -> asyncio.Queue | None:
