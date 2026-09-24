@@ -29,6 +29,7 @@ def clean_env():
         mock_config.return_value.settings.database_url = db_url
         mock_config.return_value.settings.database_type = "sqlite"
         mock_config.return_value.settings.security.auth.enabled = False
+        mock_config.return_value.settings.hooks.snapshot_ttl_seconds = 5.0
 
         cm = DatabaseContextManager()
         registry = DatabaseWorkerRegistry()
@@ -712,6 +713,7 @@ class TestBoundResumeBackstop:
 
         with patch("flux.config.Configuration.get") as cfg:
             cfg.return_value.settings.workers.park_ttl = 60
+            cfg.return_value.settings.hooks.enabled = False
             cm.release_worker(ctx.execution_id)
 
         state, worker_name, deadline = self._row(ctx.execution_id)
@@ -740,6 +742,7 @@ class TestBoundResumeBackstop:
 
         with patch("flux.config.Configuration.get") as cfg:
             cfg.return_value.settings.workers.park_ttl = 60
+            cfg.return_value.settings.hooks.enabled = False
             cm.release_worker(ctx.execution_id)
 
         _, _, deadline = self._row(ctx.execution_id)
@@ -799,6 +802,7 @@ class TestBoundResumeBackstop:
 
         with patch("flux.config.Configuration.get") as cfg:
             cfg.return_value.settings.workers.park_ttl = 60
+            cfg.return_value.settings.hooks.enabled = False
             cm.unclaim(ctx.execution_id)
 
         state, worker_name, deadline = self._row(ctx.execution_id)
@@ -827,6 +831,7 @@ class TestBoundResumeBackstop:
         loaded.start_resuming()
         with patch("flux.config.Configuration.get") as cfg:
             cfg.return_value.settings.workers.park_ttl = 60
+            cfg.return_value.settings.hooks.enabled = False
             cm.save(loaded)
 
         state, worker_name, deadline = self._row(ctx.execution_id)

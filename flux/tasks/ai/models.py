@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ModelCapabilities(BaseModel):
@@ -46,8 +46,8 @@ class ReasoningContent(BaseModel):
 class Usage(BaseModel):
     """Token usage reported by a provider for a single LLM call."""
 
-    input_tokens: int = 0
-    output_tokens: int = 0
+    input_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
 
     @property
     def total_tokens(self) -> int:

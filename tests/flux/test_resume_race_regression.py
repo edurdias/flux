@@ -27,6 +27,7 @@ def manager(tmp_path):
         mock_config.return_value.settings.database_url = db_url
         mock_config.return_value.settings.database_type = "sqlite"
         mock_config.return_value.settings.security.auth.enabled = False
+        mock_config.return_value.settings.hooks.snapshot_ttl_seconds = 5.0
         yield DatabaseContextManager()
 
 

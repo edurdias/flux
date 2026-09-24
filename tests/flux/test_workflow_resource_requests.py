@@ -18,7 +18,10 @@ class TestWorkflowCatalog(WorkflowCatalog):
     def get(self, namespace: str, name: str, version: int | None = None) -> WorkflowInfo:
         raise NotImplementedError()
 
-    def save(self, workflows: list[WorkflowInfo]):
+    def get_by_id(self, workflow_id):
+        raise NotImplementedError()
+
+    def save(self, workflows: list[WorkflowInfo], *, uow=None):
         raise NotImplementedError()
 
     def delete(self, namespace: str, name: str, version: int | None = None):

@@ -13,7 +13,10 @@ server, so nothing in this path needs an HTTP app to exist.
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from flux.unit_of_work import UnitOfWork
 
 from flux.catalogs import WorkflowCatalog
 from flux.context_managers import ContextManager
@@ -33,6 +36,8 @@ def create_execution(
     routing_input: dict | None = None,
     park_ttl: int | None = None,
     name: str | None = None,
+    uow: UnitOfWork | None = None,
+    execution_id: str | None = None,
 ) -> ExecutionContext:
     workflow = WorkflowCatalog.create().get(namespace, workflow_name, version)
     if not workflow:
@@ -48,12 +53,14 @@ def create_execution(
             input=input_data,
             requests=workflow.requests,
             name=name,
+            execution_id=execution_id,
         ),
         preferred_worker=preferred_worker or None,
         required_worker=required_worker or None,
         routing_input=routing_input or None,
         park_ttl=park_ttl,
         name=name,
+        uow=uow,
     )
 
     # Every run of a dynamic workflow refreshes its GC clock — this is
@@ -65,7 +72,7 @@ def create_execution(
     if workflow.namespace.startswith(RESERVED_DYNAMIC_PREFIX):
         from flux.dynamic_workflows import touch_last_used
 
-        touch_last_used(workflow.namespace, workflow.name)
+        touch_last_used(workflow.namespace, workflow.name, uow=uow)
 
     signals.stamp_queued(ctx.execution_id, time.monotonic())
 

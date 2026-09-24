@@ -8,7 +8,10 @@ class FakeCatalog(WorkflowCatalog):
     def get(self, namespace, name, version=None):
         raise NotImplementedError()
 
-    def save(self, workflows):
+    def get_by_id(self, workflow_id):
+        raise NotImplementedError()
+
+    def save(self, workflows, *, uow=None):
         pass
 
     def delete(self, namespace, name, version=None):

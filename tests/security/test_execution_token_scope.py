@@ -23,7 +23,11 @@ from flux.security.models import Base, RoleModel
 class TestScopeToExecution:
     def test_blanket_grant_becomes_the_allowed_families(self):
         scoped = scope_to_execution(frozenset({"*"}))
-        assert scoped == {"workflow:*", "execution:*"}
+        assert "execution:*" in scoped
+        assert not FluxIdentity(subject="s").has_permission(
+            "workflow:default:report:task:deploy:approve",
+            scoped,
+        )
         # The point: admin is no longer reachable.
         assert not FluxIdentity(subject="s").has_permission("admin:secrets:read", scoped)
         assert not FluxIdentity(subject="s").has_permission("admin:principals:manage", scoped)
@@ -115,3 +119,15 @@ async def test_scoping_does_not_poison_the_shared_cache(session_factory):
     identity = FluxIdentity(subject="svc")
     assert not identity.has_permission("admin:secrets:read", scoped)
     assert identity.has_permission("admin:secrets:read", full)
+
+
+@pytest.mark.parametrize(
+    "grant",
+    ["*", "workflow:*", "workflow:default:*", "workflow:*:*:task:*", "workflow:*:*:task:*:approve"],
+)
+def test_runtime_permissions_never_include_human_approval(grant):
+    scoped = scope_to_execution(frozenset({grant}))
+    assert not FluxIdentity(subject="s").has_permission(
+        "workflow:default:report:task:deploy:approve",
+        scoped,
+    )

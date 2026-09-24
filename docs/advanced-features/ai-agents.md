@@ -352,7 +352,9 @@ async def research(ctx: ExecutionContext):
 - Enforcement is a **pre-flight gate**: the loop checks the budget before
   every LLM call and raises `BudgetExceededError` (a catchable
   `ExecutionError`) once `spent()` reaches `max_tokens`. A call in flight is
-  never interrupted, so overshoot is bounded by one call's usage.
+  never interrupted. Sequential use can overshoot by one call's usage;
+  concurrent use can overshoot by the combined usage of all calls admitted
+  before the ceiling was reached. The budget does not reserve tokens.
 - Usage is reported by all four built-in providers. Custom providers opt in
   by populating `LLMResponse.usage`; without it, a budget sees no spend and
   only tracking-only use is meaningful.

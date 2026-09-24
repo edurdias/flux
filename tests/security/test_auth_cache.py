@@ -14,6 +14,7 @@ from flux.security.models import RoleModel
 
 def make_service(ttl: float = 30.0, registry=None) -> tuple[AuthService, MagicMock]:
     config = AuthConfig(
+        enabled=True,
         api_keys=APIKeyAuthConfig(enabled=True),
         resolution_cache_ttl=ttl,
     )
@@ -142,3 +143,26 @@ class TestIdentityCache:
         await service.authenticate("token-abc")
 
         assert provider.authenticate.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_known_expiry_is_enforced_at_equality_without_monotonic_advance(monkeypatch):
+    from datetime import datetime, timezone
+    from flux.security import auth_service
+    from flux.security.errors import AuthenticationError
+
+    now = [1000.0]
+
+    class Clock:
+        @staticmethod
+        def now(tz):
+            return datetime.fromtimestamp(now[0], timezone.utc)
+
+    monkeypatch.setattr(auth_service, "datetime", Clock)
+    service, _ = make_service()
+    identity = FluxIdentity(subject="s", metadata={"expires_at": 1005.0})
+    service._providers = [MagicMock(authenticate=AsyncMock(return_value=identity))]
+    assert await service.authenticate("token") is identity
+    now[0] = 1005.0
+    with pytest.raises(AuthenticationError):
+        await service.authenticate("token")

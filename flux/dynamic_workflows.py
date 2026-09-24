@@ -17,11 +17,16 @@ hostile source must never run on the server.
 
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 import ast
 import hashlib
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from flux.unit_of_work import UnitOfWork
 
 from flux._namespace import RESERVED_DYNAMIC_PREFIX
 from flux.utils import get_logger
@@ -152,40 +157,52 @@ def register(
     namespace = namespace_for_subject(subject)
     digest = source_hash(source)
 
-    existing = _latest(catalog, namespace, info.name)
-    if existing is not None:
-        existing_meta = (existing.metadata or {}).get("dynamic") or {}
-        if existing_meta.get("source_hash") == digest:
-            touch_last_used(namespace, existing.name)
-            return {
-                "namespace": namespace,
-                "name": existing.name,
-                "version": existing.version,
-                "existing": True,
-            }
-    else:
-        count = _distinct_names(namespace)
-        if count >= config.max_per_agent:
-            raise DynamicRegistrationError(
-                f"namespace '{namespace}' already holds {count} workflows "
-                f"(max_per_agent={config.max_per_agent}); delete unused ones "
-                "or reuse an existing name",
-            )
+    from sqlalchemy import text
+    from flux.unit_of_work import UnitOfWork
 
-    info.namespace = namespace
-    metadata = dict(info.metadata or {})
-    # The stamp: the author is the adversary, so the isolation runner comes
-    # from server config, not from anything the source declared.
-    metadata["runner"] = config.require_runner
-    metadata["dynamic"] = {
-        "source_hash": digest,
-        "created_by": subject,
-        "created_at": _utcnow_iso(),
-        "last_used_at": _utcnow_iso(),
-    }
-    info.metadata = metadata
+    with UnitOfWork() as uow:
+        if uow.session.bind.dialect.name == "sqlite":
+            uow.session.execute(text("BEGIN IMMEDIATE"))
+        else:
+            # Stable across processes; collisions only serialize extra namespaces.
+            lock_key = int.from_bytes(hashlib.sha256(namespace.encode()).digest()[:8], signed=True)
+            uow.session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
+        existing = _latest(catalog, namespace, info.name, uow=uow)
+        if existing is not None:
+            existing_meta = (existing.metadata or {}).get("dynamic") or {}
+            if existing_meta.get("source_hash") == digest:
+                touch_last_used(namespace, existing.name, uow=uow)
+                uow.commit()
+                return {
+                    "namespace": namespace,
+                    "name": existing.name,
+                    "version": existing.version,
+                    "existing": True,
+                }
+        else:
+            count = _distinct_names(namespace, uow=uow)
+            if count >= config.max_per_agent:
+                raise DynamicRegistrationError(
+                    f"namespace '{namespace}' already holds {count} workflows "
+                    f"(max_per_agent={config.max_per_agent}); delete unused ones "
+                    "or reuse an existing name",
+                )
 
-    saved = catalog.save([info])[0]
+        info.namespace = namespace
+        metadata = dict(info.metadata or {})
+        # The stamp: the author is the adversary, so the isolation runner comes
+        # from server config, not from anything the source declared.
+        metadata["runner"] = config.require_runner
+        metadata["dynamic"] = {
+            "source_hash": digest,
+            "created_by": subject,
+            "created_at": _utcnow_iso(),
+            "last_used_at": _utcnow_iso(),
+        }
+        info.metadata = metadata
+
+        saved = catalog.save([info], uow=uow)[0]
+        uow.commit()
     logger.info(
         f"Dynamic workflow registered: {namespace}/{saved.name} v{saved.version} "
         f"by '{subject}' (runner={config.require_runner})",
@@ -198,12 +215,12 @@ def register(
     }
 
 
-def touch_last_used(namespace: str, name: str) -> None:
+def touch_last_used(namespace: str, name: str, *, uow: UnitOfWork | None = None) -> None:
     """Refresh the GC clock on a dynamic entry (latest version row)."""
     from flux.models import RepositoryFactory, WorkflowModel
 
     repo = RepositoryFactory.create_repository()
-    with repo.session() as session:
+    with nullcontext(uow.session) if uow is not None else repo.session() as session:
         model = (
             session.query(WorkflowModel)
             .filter(WorkflowModel.namespace == namespace, WorkflowModel.name == name)
@@ -217,10 +234,22 @@ def touch_last_used(namespace: str, name: str) -> None:
         dynamic["last_used_at"] = _utcnow_iso()
         metadata["dynamic"] = dynamic
         model.wf_metadata = metadata
-        session.commit()
+        if uow is None:
+            session.commit()
 
 
-def _latest(catalog, namespace: str, name: str):
+def _latest(catalog, namespace: str, name: str, *, uow: UnitOfWork | None = None):
+    if uow is not None:
+        from flux.models import WorkflowModel
+
+        model = (
+            uow.session.query(WorkflowModel)
+            .filter_by(namespace=namespace, name=name)
+            .order_by(WorkflowModel.version.desc())
+            .first()
+        )
+        return catalog._to_info(model) if model is not None else None
+
     from flux.errors import WorkflowNotFoundError
 
     try:
@@ -231,13 +260,13 @@ def _latest(catalog, namespace: str, name: str):
         return None
 
 
-def _distinct_names(namespace: str) -> int:
+def _distinct_names(namespace: str, *, uow: UnitOfWork | None = None) -> int:
     from sqlalchemy import func as sa_func
 
     from flux.models import RepositoryFactory, WorkflowModel
 
     repo = RepositoryFactory.create_repository()
-    with repo.session() as session:
+    with nullcontext(uow.session) if uow is not None else repo.session() as session:
         return (
             session.query(sa_func.count(sa_func.distinct(WorkflowModel.name)))
             .filter(WorkflowModel.namespace == namespace)

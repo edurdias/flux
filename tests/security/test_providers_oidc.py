@@ -209,3 +209,39 @@ class TestOIDCProviderInitValidation:
         OIDCProvider(
             OIDCConfig(enabled=True, issuer="https://idp", audience="flux-api"),
         )
+
+
+@pytest.mark.asyncio
+async def test_auth_cache_respects_configured_oidc_expiry_leeway(monkeypatch):
+    from datetime import datetime, timezone
+    from flux.security import auth_service
+    from flux.security.auth_service import AuthService
+    from flux.security.config import AuthConfig
+
+    private_key, public_key = _generate_rsa_key_pair()
+    expiry = int(time.time()) - 10
+    config = OIDCConfig(
+        enabled=True,
+        issuer="https://auth.example.com",
+        audience="flux-api",
+        clock_skew=30,
+    )
+    provider = OIDCProvider(config)
+    token = pyjwt.encode(
+        {"iss": config.issuer, "aud": config.audience, "sub": "alice", "exp": expiry},
+        private_key,
+        algorithm="RS256",
+    )
+    service = AuthService(AuthConfig(enabled=True, oidc=config), MagicMock())
+    service._providers = [provider]
+    with patch.object(provider, "_get_signing_key", return_value=public_key):
+        assert (await service.authenticate(token)).subject == "alice"
+
+        class Clock:
+            @staticmethod
+            def now(tz):
+                return datetime.fromtimestamp(expiry + 30, timezone.utc)
+
+        monkeypatch.setattr(auth_service, "datetime", Clock)
+        with pytest.raises(AuthenticationError):
+            await service.authenticate(token)

@@ -137,8 +137,9 @@ at storage and never reach the envelope at all.
 ## Delivery semantics
 
 Firing is a **transactional outbox**. The delivery row is written in the
-same transaction as the event it reports, so no event is ever missed and no
-delivery ever blocks a checkpoint. The **drain** then runs on the scheduler
+same transaction as the event it reports. Matching or outbox storage failures
+roll back the checkpoint; retrying it writes both the event and its delivery
+obligations. Delivery itself runs outside the checkpoint transaction. The **drain** then runs on the scheduler
 tick, under the same cross-replica lock as the other sweeps, and turns each
 due row into an execution.
 

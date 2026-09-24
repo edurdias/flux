@@ -9,7 +9,6 @@ in the database and a due schedule re-fired on every poll while
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -80,10 +79,21 @@ async def test_trigger_scheduled_workflow_persists_run(manager):
     assert len(due) == 1
 
     server = Server("127.0.0.1", 0)
-    mock_ctx = MagicMock()
-    mock_ctx.execution_id = "exec-sched-1"
-    with patch.object(Server, "_create_execution", return_value=mock_ctx):
-        await server._scheduler()._trigger(due[0], datetime.now(timezone.utc))
+    from flux.catalogs import WorkflowCatalog, WorkflowInfo
+
+    WorkflowCatalog.create().save(
+        [
+            WorkflowInfo(
+                id="",
+                name="wf",
+                namespace="default",
+                imports=[],
+                source=b"",
+                metadata={},
+            ),
+        ],
+    )
+    await server._scheduler()._trigger(due[0], datetime.now(timezone.utc))
 
     fresh = manager.get_schedule(sch.id)
     assert fresh.run_count == 1, "the trigger path must persist the run"

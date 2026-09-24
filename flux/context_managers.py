@@ -56,7 +56,7 @@ def _accept_state_write(new: ExecutionState, db: ExecutionState) -> bool:
     or append misleading events.
     """
     if db in _TERMINAL_STATES:
-        return new == db
+        return False
     if db == ExecutionState.CANCELLING and new not in _TERMINAL_STATES:
         return False
     if new == ExecutionState.PAUSED and db in _NO_DEMOTE_TO_PAUSED_FROM:
@@ -244,7 +244,13 @@ class ContextManager(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def unclaim(self, execution_id: str) -> ExecutionContext:  # pragma: no cover
+    def unclaim(
+        self,
+        execution_id: str,
+        *,
+        expected_worker: str | None = None,
+        expected_claim_generation: int | None = None,
+    ) -> ExecutionContext:  # pragma: no cover
         raise NotImplementedError()
 
     @abstractmethod
@@ -598,8 +604,10 @@ class DatabaseContextManager(ContextManager):
         session: Session,
         execution_id: str,
     ) -> ExecutionContextModel | None:
-        from sqlalchemy import select
+        from sqlalchemy import select, text
 
+        if session.bind.dialect.name == "sqlite" and not session.in_transaction():
+            session.execute(text("BEGIN IMMEDIATE"))
         stmt = (
             select(ExecutionContextModel)
             .where(ExecutionContextModel.execution_id == execution_id)
@@ -1447,28 +1455,11 @@ class DatabaseContextManager(ContextManager):
 
     def claim(self, execution_id: str, worker: WorkerInfo) -> ExecutionContext:
         with self.session() as session:
-            # Race-safe path: the row was already SCHEDULED to this worker by
-            # next_execution(). Lock it for update so a second worker can't
-            # double-claim between the SELECT and the COMMIT.
-            model = (
-                session.query(ExecutionContextModel)
-                .filter(
-                    ExecutionContextModel.execution_id == execution_id,
-                    ExecutionContextModel.state == ExecutionState.SCHEDULED,
-                    ExecutionContextModel.worker_name == worker.name,
-                )
-                .with_for_update(skip_locked=True)
-                .first()
-            )
-            # Fall back to the plain lookup so direct ctx.claim() callers
-            # (tests, in-process flows that skip the dispatcher) still work.
-            if model is None:
-                model = session.get(ExecutionContextModel, execution_id)
+            model = self._lock_for_write(session, execution_id)
             if model is None:
                 raise ExecutionContextNotFoundError(execution_id)
-            # Don't let the fallback hijack a row that was scheduled to a
-            # different worker by the dispatcher. CREATED-from-tests still
-            # passes through.
+            # Direct callers can claim CREATED rows, but may not take a
+            # dispatch assigned to another worker.
             if (
                 model.state == ExecutionState.SCHEDULED
                 and model.worker_name
@@ -1481,7 +1472,7 @@ class DatabaseContextManager(ContextManager):
                     ),
                 )
             # The dispatch queries filter on the binding, but any registered
-            # worker can POST here and the fallback above accepts a CREATED
+            # worker can POST here and this method accepts a CREATED
             # row — exactly where a bound execution waits.
             if model.required_worker and model.required_worker != worker.name:
                 raise ExecutionError(
@@ -1490,8 +1481,11 @@ class DatabaseContextManager(ContextManager):
                         f"'{model.required_worker}', not '{worker.name}'"
                     ),
                 )
+            if model.state not in (ExecutionState.CREATED, ExecutionState.SCHEDULED):
+                raise ExecutionError(message=f"Cannot claim execution in state {model.state.value}")
             ctx = model.to_plain()
             ctx.claim(worker)
+            ctx.claim_generation = model.claim_generation or 0
             model.state = ctx.state
             model.worker_name = ctx.current_worker
             self._persist_events(ctx, session)
@@ -1500,29 +1494,12 @@ class DatabaseContextManager(ContextManager):
 
     def claim_resume(self, execution_id: str, worker: WorkerInfo) -> ExecutionContext:
         with self.session() as session:
-            model = (
-                session.query(ExecutionContextModel)
-                .filter(
-                    ExecutionContextModel.execution_id == execution_id,
-                    ExecutionContextModel.state == ExecutionState.RESUME_SCHEDULED,
-                    ExecutionContextModel.worker_name == worker.name,
-                )
-                .with_for_update(skip_locked=True)
-                .first()
-            )
-            if not model:
-                # Either the execution doesn't exist, isn't RESUME_SCHEDULED,
-                # or was scheduled for a different worker. resume_claim() will
-                # produce the precise error after we re-fetch.
-                fallback = session.get(ExecutionContextModel, execution_id)
-                if not fallback:
-                    raise ExecutionContextNotFoundError(execution_id)
-                ctx = fallback.to_plain()
-                ctx.resume_claim(worker)
-                # Unreachable: resume_claim raises above. Kept for type safety.
-                raise ExecutionError(message="claim_resume failed without a specific reason")
+            model = self._lock_for_write(session, execution_id)
+            if model is None:
+                raise ExecutionContextNotFoundError(execution_id)
             ctx = model.to_plain()
             ctx.resume_claim(worker)
+            ctx.claim_generation = model.claim_generation or 0
             model.state = ctx.state
             model.worker_name = ctx.current_worker
             self._persist_events(ctx, session)
@@ -1549,7 +1526,13 @@ class DatabaseContextManager(ContextManager):
 
             return ctx
 
-    def unclaim(self, execution_id: str) -> ExecutionContext:
+    def unclaim(
+        self,
+        execution_id: str,
+        *,
+        expected_worker: str | None = None,
+        expected_claim_generation: int | None = None,
+    ) -> ExecutionContext:
         """Reset an active execution for rescheduling.
 
         Recovery rules:
@@ -1567,9 +1550,26 @@ class DatabaseContextManager(ContextManager):
             ExecutionState.RUNNING,
         }
         with self.session() as session:
-            model = session.get(ExecutionContextModel, execution_id)
+            model = self._lock_for_write(session, execution_id)
             if not model:
                 raise ExecutionContextNotFoundError(execution_id)
+            if expected_worker is not None:
+                generation = model.claim_generation or 0
+                preclaim = model.state in (
+                    ExecutionState.SCHEDULED,
+                    ExecutionState.RESUME_SCHEDULED,
+                )
+                if model.worker_name != expected_worker or (
+                    expected_claim_generation != generation
+                    and not (expected_claim_generation is None and preclaim)
+                ):
+                    raise StaleClaimError(
+                        execution_id,
+                        expected=expected_claim_generation
+                        if expected_claim_generation is not None
+                        else -1,
+                        actual=generation,
+                    )
             if model.state in resume_recovery:
                 model.state = ExecutionState.RESUMING
                 model.worker_name = None

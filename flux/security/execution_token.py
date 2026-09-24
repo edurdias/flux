@@ -182,6 +182,7 @@ class ExecutionTokenProvider(AuthProvider):
                 roles=roles,
                 metadata={
                     "token_type": "execution",
+                    "expires_at": payload["exp"],
                     "issuer": EXECUTION_TOKEN_ISSUER,
                     "principal_issuer": principal_issuer,
                     "exec_id": exec_id,

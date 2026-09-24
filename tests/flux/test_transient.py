@@ -206,7 +206,7 @@ class TestDispatchPayloadFlag:
             workflow_info.source = b"src"
             workflow_info.metadata = {"durability": "transient"}
             catalog = MagicMock()
-            catalog.get.return_value = workflow_info
+            catalog.get_by_id.return_value = workflow_info
             mp.setattr("flux.api.worker_routes.WorkflowCatalog", MagicMock(create=lambda: catalog))
             session = MagicMock()
             session.get.return_value = None

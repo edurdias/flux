@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from pydantic import field_validator
 
 from flux import domain
@@ -25,8 +25,7 @@ class ExecutionEvent(BaseModel):
         # them as UTC keeps them comparable against the server's own stamps.
         return as_utc(value)
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class ExecutionContext(BaseModel):
@@ -43,8 +42,7 @@ class ExecutionContext(BaseModel):
     name: str | None = None
     events: list[ExecutionEvent] = []
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def to_domain(self) -> domain.ExecutionContext:
         from flux.domain.events import ExecutionEvent, ExecutionEventType, ExecutionState

@@ -5,7 +5,10 @@ import functools
 import logging
 import re
 import time
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from flux.unit_of_work import UnitOfWork
 from collections.abc import AsyncIterator, Callable
 
 import uvicorn
@@ -534,6 +537,8 @@ class Server(
         routing_input: dict | None = None,
         park_ttl: int | None = None,
         name: str | None = None,
+        uow: UnitOfWork | None = None,
+        execution_id: str | None = None,
     ) -> ExecutionContext:
         return create_execution(
             self.signals,
@@ -546,6 +551,8 @@ class Server(
             routing_input=routing_input,
             park_ttl=park_ttl,
             name=name,
+            uow=uow,
+            execution_id=execution_id,
         )
 
     def _stream_execution_events(
