@@ -120,10 +120,14 @@ class SubprocessRunner(Runner):
         hooks: RunnerHooks,
     ) -> ExecutionContext:
         execution_id = request.context.execution_id
-        proc = await self._spawn(request)
-        assert proc.stdin and proc.stdout and proc.stderr
-
         timeout = self._effective_timeout(request)
+        request_frame = {
+            "workflow": request.workflow.model_dump(),
+            "context": request.context.to_dict(),
+            "exec_token": request.exec_token,
+            "transient": request.context.is_transient,
+        }
+        proc = await self._spawn(request)
         timed_out = False
         watchdog: asyncio.Task | None = None
         if timeout > 0:
@@ -156,12 +160,6 @@ class SubprocessRunner(Runner):
         last_ctx: ExecutionContext | None = None
         result_ctx: ExecutionContext | None = None
 
-        request_frame = {
-            "workflow": request.workflow.model_dump(),
-            "context": request.context.to_dict(),
-            "exec_token": request.exec_token,
-            "transient": request.context.is_transient,
-        }
         try:
             async with stdin_lock:
                 proc.stdin.write(json.dumps(request_frame, default=str).encode() + b"\n")
@@ -212,9 +210,23 @@ class SubprocessRunner(Runner):
             # Cancellation or drain deadline: signal the child so the
             # workflow's own cancellation handling (terminal CANCELLED
             # checkpoint, forwarded here) still runs, then enforce.
-            await self._shutdown(proc, hooks)
+            await self._shutdown(proc, hooks, execution_id)
             raise
         finally:
+
+            async def cleanup():
+                if proc.returncode is None:
+                    await self._force_kill(proc)
+                await proc.wait()
+
+            cleanup_task = asyncio.create_task(cleanup())
+            cancelled = False
+            while not cleanup_task.done():
+                try:
+                    await asyncio.shield(cleanup_task)
+                except asyncio.CancelledError:
+                    cancelled = True
+            cleanup_task.result()
             if watchdog is not None:
                 watchdog.cancel()
             self._close_stdin(proc)
@@ -222,6 +234,8 @@ class SubprocessRunner(Runner):
             for task in rpc_tasks:
                 task.cancel()
             self._reap(proc)
+            if cancelled:
+                raise asyncio.CancelledError
 
         if result_ctx is None:
             # A result that raced the deadline still wins (result_ctx set);
@@ -245,14 +259,18 @@ class SubprocessRunner(Runner):
             if not line:
                 return
             try:
-                yield json.loads(line)
+                frame = json.loads(line)
+                if not isinstance(frame, dict):
+                    raise ValueError("Runner frame must be an object")
+                yield frame
             except json.JSONDecodeError:
                 logger.warning("Dropping malformed frame from runner child")
 
     @staticmethod
     def _owns_frame(frame: dict, execution_id: str) -> bool:
         """Whether a context-bearing frame names the dispatched execution."""
-        claimed = (frame.get("context") or {}).get("execution_id")
+        context = frame.get("context")
+        claimed = context.get("execution_id") if isinstance(context, dict) else None
         if claimed == execution_id:
             return True
         logger.error(
@@ -333,7 +351,7 @@ class SubprocessRunner(Runner):
             if proc.stdin is not None:
                 proc.stdin.close()
 
-    async def _shutdown(self, proc, hooks: RunnerHooks):
+    async def _shutdown(self, proc, hooks: RunnerHooks, execution_id: str):
         if proc.returncode is not None:
             return
         self._close_stdin(proc)
@@ -341,7 +359,10 @@ class SubprocessRunner(Runner):
         try:
             # Keep forwarding frames during the grace window so the child's
             # terminal CANCELLED checkpoint reaches the server.
-            await asyncio.wait_for(self._drain_frames(proc, hooks), timeout=self._term_grace)
+            await asyncio.wait_for(
+                self._drain_frames(proc, hooks, execution_id),
+                timeout=self._term_grace,
+            )
         except TimeoutError:
             # Either the child ignored SIGTERM, or it exited but its terminal
             # checkpoint is still awaiting server acknowledgement (the outbox
@@ -354,9 +375,12 @@ class SubprocessRunner(Runner):
         with contextlib.suppress(ProcessLookupError):
             await proc.wait()
 
-    async def _drain_frames(self, proc, hooks: RunnerHooks):
+    async def _drain_frames(self, proc, hooks: RunnerHooks, execution_id: str):
         async for frame in self._frames(proc):
-            if frame.get("type") == "checkpoint" or frame.get("type") == "result":
+            if frame.get("type") in ("checkpoint", "result") and self._owns_frame(
+                frame,
+                execution_id,
+            ):
                 with contextlib.suppress(Exception):
                     await hooks.checkpoint(self._rebuild(frame, hooks))
         await proc.wait()

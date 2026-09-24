@@ -8,6 +8,8 @@ Flux uses synchronous Session throughout (flux/models.py:70); UoW does too.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from sqlalchemy.orm import Session
 
 from flux.models import RepositoryFactory
@@ -27,13 +29,14 @@ class UnitOfWork:
     exception propagates.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, session_factory: Callable[[], Session] | None = None) -> None:
+        self._session_factory = session_factory
         self._session: Session | None = None
         self._committed = False
 
     def __enter__(self) -> UnitOfWork:
-        repo = RepositoryFactory.create_repository()
-        self._session = repo.session()
+        factory = self._session_factory or RepositoryFactory.create_repository().session
+        self._session = factory()
         self._committed = False
         return self
 

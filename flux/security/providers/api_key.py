@@ -26,7 +26,7 @@ class APIKeyProvider(AuthProvider):
                 return None
             if key_model.expires_at and key_model.expires_at.replace(
                 tzinfo=timezone.utc,
-            ) < datetime.now(timezone.utc):
+            ) <= datetime.now(timezone.utc):
                 logger.warning(f"API key '{key_model.name}' has expired")
                 return None
 
@@ -62,6 +62,11 @@ class APIKeyProvider(AuthProvider):
                     "issuer": "flux",
                     "principal_id": principal.id,
                     "key_name": key_model.name,
+                    "expires_at": (
+                        key_model.expires_at.replace(tzinfo=timezone.utc).timestamp()
+                        if key_model.expires_at
+                        else None
+                    ),
                 },
             )
         finally:

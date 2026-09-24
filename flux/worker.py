@@ -15,7 +15,7 @@ from collections.abc import Callable
 import httpx
 import psutil
 from httpx_sse import aconnect_sse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from flux import ExecutionContext
 from flux.config import Configuration
@@ -87,8 +87,7 @@ class WorkflowExecutionRequest(BaseModel):
     # Per-workflow narrowing of that runner's profile; may only tighten.
     runner_options: dict | None = None
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @staticmethod
     def from_json(
@@ -1707,6 +1706,8 @@ class Worker:
 
     async def _flush_progress(self, queue: asyncio.Queue, execution_id: str):
         base_url = f"{self.base_url}/{self.name}"
+        generation = self._claim_generations.get(execution_id)
+        headers = {"X-Flux-Claim-Generation": generation} if generation is not None else {}
         try:
             while True:
                 batch = []
@@ -1723,6 +1724,7 @@ class Worker:
                             await self._authorized_post(
                                 f"{base_url}/progress/{execution_id}",
                                 json=batch,
+                                headers=headers,
                             )
                         except Exception:
                             logger.warning(
@@ -1737,6 +1739,7 @@ class Worker:
                     await self._authorized_post(
                         f"{base_url}/progress/{execution_id}",
                         json=batch,
+                        headers=headers,
                     )
                 except Exception:
                     logger.warning(

@@ -65,7 +65,7 @@ class WorkerRoutesMixin:
         """
         from flux.models import ExecutionContextModel
 
-        workflow = WorkflowCatalog.create().get(ctx.workflow_namespace, ctx.workflow_name)
+        workflow = WorkflowCatalog.create().get_by_id(ctx.workflow_id)
         # source travels base64-encoded on the wire; the worker decodes it.
         workflow.source = base64.b64encode(workflow.source).decode("utf-8")  # type: ignore[assignment]
         payload: dict = {"workflow": workflow, "context": ctx}
@@ -908,7 +908,10 @@ class WorkerRoutesMixin:
                 from flux.errors import ExecutionError
 
                 if current.state in (ExecutionState.CREATED, ExecutionState.SCHEDULED):
-                    ctx = await asyncio.to_thread(context_manager.claim, execution_id, worker)
+                    try:
+                        ctx = await asyncio.to_thread(context_manager.claim, execution_id, worker)
+                    except ExecutionError as e:
+                        raise HTTPException(status_code=409, detail=str(e))
                     is_resume_claim = False
                 elif current.state == ExecutionState.RESUME_SCHEDULED:
                     try:
@@ -947,10 +950,7 @@ class WorkerRoutesMixin:
                 # Fencing token: the worker echoes this on every checkpoint so
                 # a superseded claim (unclaimed after partition, reassigned)
                 # can be rejected instead of interleaving with the new owner.
-                generation = await asyncio.to_thread(
-                    context_manager.get_claim_generation,
-                    execution_id,
-                )
+                generation = ctx.claim_generation
                 response.headers["X-Flux-Claim-Generation"] = str(generation)
 
                 return ctx.to_dict()
@@ -1112,7 +1112,16 @@ class WorkerRoutesMixin:
                         )
 
                 try:
-                    ctx = await asyncio.to_thread(context_manager.unclaim, execution_id)
+                    ctx = await asyncio.to_thread(
+                        context_manager.unclaim,
+                        execution_id,
+                        expected_worker=name,
+                        expected_claim_generation=int(claim_generation)
+                        if claim_generation is not None
+                        else None,
+                    )
+                except StaleClaimError as e:
+                    raise HTTPException(status_code=409, detail=str(e))
                 except ExecutionContextNotFoundError:
                     raise HTTPException(status_code=404, detail="Execution context not found.")
 
@@ -1259,26 +1268,41 @@ class WorkerRoutesMixin:
             name: str,
             execution_id: str,
             events: list = Body(...),
+            claim_generation: int | None = Header(None, alias="X-Flux-Claim-Generation"),
             identity: FluxIdentity = Depends(require_permission("worker:*:*")),
         ):
             self._verify_worker_identity(identity, name)
-            self._worker_last_pong[name] = time.monotonic()
+            from flux.context_managers import DatabaseContextManager
+            from flux.models import RepositoryFactory
 
-            buffer = self.signals.progress_buffer(execution_id)
-            if not buffer:
-                return {"status": "ok"}
-
-            for event in events:
-                progress_event = ExecutionEvent(
-                    type=ExecutionEventType.TASK_PROGRESS,
-                    source_id=event.get("task_id", ""),
-                    name=event.get("task_name", ""),
-                    value=event.get("value"),
-                )
-                try:
-                    buffer.put_nowait(progress_event)
-                except asyncio.QueueFull:
-                    pass
+            # Hold the ownership lock through the local queue mutation, with no
+            # await in between, so reassignment cannot interleave acceptance.
+            with RepositoryFactory.create_repository().session() as session:
+                row = DatabaseContextManager._lock_for_write(session, execution_id)
+                if row is None:
+                    raise HTTPException(status_code=404, detail="Execution not found")
+                if row.worker_name != name:
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Worker does not own this execution",
+                    )
+                generation = row.claim_generation or 0
+                if generation > 0 and claim_generation != generation:
+                    raise HTTPException(status_code=409, detail="stale-claim")
+                self._worker_last_pong[name] = time.monotonic()
+                buffer = self.signals.progress_buffer(execution_id)
+                if buffer is not None:
+                    for event in events:
+                        progress_event = ExecutionEvent(
+                            type=ExecutionEventType.TASK_PROGRESS,
+                            source_id=event.get("task_id", ""),
+                            name=event.get("task_name", ""),
+                            value=event.get("value"),
+                        )
+                        try:
+                            buffer.put_nowait(progress_event)
+                        except asyncio.QueueFull:
+                            pass
             return {"status": "ok"}
 
         @api.post("/workers/{name}/secrets/batch")
@@ -1306,7 +1330,7 @@ class WorkerRoutesMixin:
                 )
 
             try:
-                wf = WorkflowCatalog.create().get(ctx.workflow_namespace, ctx.workflow_name)
+                wf = WorkflowCatalog.create().get_by_id(ctx.workflow_id)
             except Exception:
                 raise HTTPException(status_code=404, detail="Workflow not found")
             declared = set((getattr(wf, "metadata", None) or {}).get("secret_requests", []) or [])

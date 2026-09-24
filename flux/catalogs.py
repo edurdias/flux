@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 import ast
 from abc import ABC
 from abc import abstractmethod
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from flux.unit_of_work import UnitOfWork
 
 
 from sqlalchemy import and_
@@ -263,7 +268,16 @@ class WorkflowCatalog(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def save(self, workflows: list[WorkflowInfo]):  # pragma: no cover
+    def get_by_id(self, workflow_id: str) -> WorkflowInfo:
+        raise NotImplementedError()
+
+    @abstractmethod
+    def save(
+        self,
+        workflows: list[WorkflowInfo],
+        *,
+        uow: UnitOfWork | None = None,
+    ) -> list[WorkflowInfo]:  # pragma: no cover
         raise NotImplementedError()
 
     @abstractmethod
@@ -1270,14 +1284,26 @@ class DatabaseWorkflowCatalog(WorkflowCatalog):
             raise WorkflowNotFoundError(f"{namespace}/{name}")
         return self._to_info(model)
 
-    def save(self, workflows: list[WorkflowInfo]):
+    def get_by_id(self, workflow_id: str) -> WorkflowInfo:
+        with self.session() as session:
+            model = session.get(WorkflowModel, workflow_id)
+            if model is None:
+                raise WorkflowNotFoundError(workflow_id)
+            return self._to_info(model)
+
+    def save(self, workflows: list[WorkflowInfo], *, uow: UnitOfWork | None = None):
         from uuid import uuid4
 
-        with self.session() as session:
+        with nullcontext(uow.session) if uow is not None else self.session() as session:
             try:
                 for wf in workflows:
                     wf.id = uuid4().hex
-                    existing = self._get(wf.namespace, wf.name)
+                    existing = (
+                        session.query(WorkflowModel)
+                        .filter_by(namespace=wf.namespace, name=wf.name)
+                        .order_by(WorkflowModel.version.desc())
+                        .first()
+                    )
                     wf.version = existing.version + 1 if existing else 1
                     requests_dict = None
                     if wf.requests is not None:
@@ -1298,7 +1324,8 @@ class DatabaseWorkflowCatalog(WorkflowCatalog):
                         metadata=wf.metadata,
                     )
                     session.add(model)
-                session.commit()
+                if uow is None:
+                    session.commit()
                 return workflows
             except IntegrityError:  # pragma: no cover
                 session.rollback()

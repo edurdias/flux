@@ -113,16 +113,20 @@ class DatabaseAgentManager(AgentManager):
         )
 
     def delete(self, name: str) -> None:
-        with self.session() as session:
-            model = session.get(AgentModel, name)
+        from flux.unit_of_work import UnitOfWork
+
+        from flux.config_manager import DatabaseConfigManager
+
+        registry = HookRegistry.create()
+        with UnitOfWork() as uow:
+            model = uow.session.get(AgentModel, name)
             if not model:
                 raise ValueError(f"Agent '{name}' not found")
-            session.delete(model)
-            session.commit()
-        # Best-effort config cleanup; ConfigManager.remove is a no-op if
-        # the key is already absent so this is safe to call unconditionally.
-        ConfigManager.current().remove(_config_key(name))
-        HookRegistry.create().delete_owned_hooks(owner_type="agent", owner_ref=name)
+            DatabaseConfigManager().remove(_config_key(name), uow=uow)
+            registry.delete_owned_hooks(owner_type="agent", owner_ref=name, uow=uow)
+            uow.session.delete(model)
+            uow.commit()
+        registry.invalidate()
 
     def list(self) -> list[AgentDefinition]:
         with self.session() as session:

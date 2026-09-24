@@ -13,7 +13,7 @@ from flux.security.execution_token import mint_execution_token
 class TestMintExecutionToken:
     @pytest.fixture(autouse=True)
     def patch_secret(self, monkeypatch):
-        monkeypatch.setenv("FLUX_EXECUTION_TOKEN_SECRET", "test-secret-for-unit-tests-only")
+        monkeypatch.setenv("FLUX_EXECUTION_TOKEN_SECRET", "test-secret-for-unit-tests-only-32")
 
     def test_mint_returns_string(self):
         token = mint_execution_token(
@@ -34,7 +34,7 @@ class TestMintExecutionToken:
             on_behalf_of="alice@acme.com",
             ttl_seconds=600,
         )
-        payload = jwt.decode(token, "test-secret-for-unit-tests-only", algorithms=["HS256"])
+        payload = jwt.decode(token, "test-secret-for-unit-tests-only-32", algorithms=["HS256"])
         assert payload["iss"] == "flux-server"
         assert payload["sub"] == "alice@acme.com"
         assert payload["principal_issuer"] == "https://auth.example.com"
@@ -59,13 +59,13 @@ class TestMintExecutionToken:
             on_behalf_of="alice@acme.com",
             ttl_seconds=600,
         )
-        p1 = jwt.decode(t1, "test-secret-for-unit-tests-only", algorithms=["HS256"])
-        p2 = jwt.decode(t2, "test-secret-for-unit-tests-only", algorithms=["HS256"])
+        p1 = jwt.decode(t1, "test-secret-for-unit-tests-only-32", algorithms=["HS256"])
+        p2 = jwt.decode(t2, "test-secret-for-unit-tests-only-32", algorithms=["HS256"])
         assert p1["jti"] != p2["jti"]
 
 
 class TestExecutionTokenProvider:
-    SECRET = "test-secret-for-unit-tests-only"
+    SECRET = "test-secret-for-unit-tests-only-32"
 
     @pytest.fixture(autouse=True)
     def patch_secret(self, monkeypatch):
@@ -132,7 +132,7 @@ class TestExecutionTokenProvider:
                 "scope": "execution",
                 "exp": int(time.time()) + 600,
             },
-            "wrong-secret",
+            "wrong-secret-for-unit-tests-only-32",
             algorithm="HS256",
         )
         identity = await provider.authenticate(bad_token)
@@ -140,7 +140,7 @@ class TestExecutionTokenProvider:
 
     @pytest.mark.asyncio
     async def test_validate_wrong_scope(self, provider):
-        secret = os.environ.get("FLUX_EXECUTION_TOKEN_SECRET", "test-secret-for-unit-tests-only")
+        secret = os.environ.get("FLUX_EXECUTION_TOKEN_SECRET", "test-secret-for-unit-tests-only-32")
         token = jwt.encode(
             {
                 "iss": "flux-server",
@@ -160,7 +160,7 @@ class TestExecutionTokenProvider:
 
     @pytest.mark.asyncio
     async def test_validate_wrong_issuer(self, provider):
-        secret = os.environ.get("FLUX_EXECUTION_TOKEN_SECRET", "test-secret-for-unit-tests-only")
+        secret = os.environ.get("FLUX_EXECUTION_TOKEN_SECRET", "test-secret-for-unit-tests-only-32")
         token = jwt.encode(
             {
                 "iss": "not-flux-server",
@@ -229,7 +229,7 @@ class TestExecutionTokenProvider:
 
 class TestExecutionTokenTTL:
     def test_uses_config_ttl_when_none_passed(self, monkeypatch):
-        monkeypatch.setenv("FLUX_EXECUTION_TOKEN_SECRET", "test-secret")
+        monkeypatch.setenv("FLUX_EXECUTION_TOKEN_SECRET", "test-secret-for-unit-tests-only-32")
         from flux.config import Configuration
         from flux.security.execution_token import mint_execution_token
 
@@ -242,14 +242,14 @@ class TestExecutionTokenTTL:
                 execution_id="exec-1",
                 on_behalf_of="alice",
             )
-            payload = jwt.decode(token, "test-secret", algorithms=["HS256"])
+            payload = jwt.decode(token, "test-secret-for-unit-tests-only-32", algorithms=["HS256"])
             expires_in = payload["exp"] - before
             assert 3590 <= expires_in <= 3610
         finally:
             Configuration.get().reset()
 
     def test_explicit_ttl_overrides_config(self, monkeypatch):
-        monkeypatch.setenv("FLUX_EXECUTION_TOKEN_SECRET", "test-secret")
+        monkeypatch.setenv("FLUX_EXECUTION_TOKEN_SECRET", "test-secret-for-unit-tests-only-32")
         from flux.config import Configuration
         from flux.security.execution_token import mint_execution_token
 
@@ -263,14 +263,14 @@ class TestExecutionTokenTTL:
                 on_behalf_of="alice",
                 ttl_seconds=60,
             )
-            payload = jwt.decode(token, "test-secret", algorithms=["HS256"])
+            payload = jwt.decode(token, "test-secret-for-unit-tests-only-32", algorithms=["HS256"])
             expires_in = payload["exp"] - before
             assert 55 <= expires_in <= 65
         finally:
             Configuration.get().reset()
 
     def test_falls_back_to_default_when_config_unset(self, monkeypatch):
-        monkeypatch.setenv("FLUX_EXECUTION_TOKEN_SECRET", "test-secret")
+        monkeypatch.setenv("FLUX_EXECUTION_TOKEN_SECRET", "test-secret-for-unit-tests-only-32")
         from flux.security.execution_token import (
             _DEFAULT_EXECUTION_TOKEN_TTL,
             _get_execution_token_ttl,
@@ -366,7 +366,7 @@ class TestTerminalExecutionRejection:
     """A token outlives the work it was minted for: the TTL default is 24h and
     nothing invalidated it on completion. Terminal means the token stops."""
 
-    SECRET = "test-secret-for-unit-tests-only"
+    SECRET = "test-secret-for-unit-tests-only-32"
 
     @pytest.fixture(autouse=True)
     def patch_secret(self, monkeypatch):

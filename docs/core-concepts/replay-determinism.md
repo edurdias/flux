@@ -121,3 +121,11 @@ run on a fleet:
 3. Exercise it: run the workflow with a `pause(...)` inserted mid-way, resume
    it, and verify tasks before the pause did not re-run (their side effects
    appear once) while the final output is what a straight run produces.
+
+## Workflow versions
+
+Distributed executions keep the workflow version selected when they were created.
+Publishing a newer version does not change an existing execution’s source, runner
+options, task authorization exemptions, or declared secrets. This applies to queued,
+running, and paused executions. Start a new execution to use the newer version;
+keep older catalog versions available while their executions may still resume.

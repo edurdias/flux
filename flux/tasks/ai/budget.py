@@ -14,7 +14,9 @@ class Budget:
     Enforcement is a pre-flight gate: the agent loop calls :meth:`check`
     before each LLM call and raises :class:`BudgetExceededError` once
     ``spent() >= max_tokens``. A call already in flight is never interrupted,
-    so overshoot is bounded by one call's usage.
+    so sequential use can overshoot by one call's usage. With concurrent
+    callers, overshoot can include the usage of every call admitted before
+    the ceiling was reached; this gate does not reserve tokens.
 
     Scope: a budget bounds spend within one run attempt. On resume, the
     agent loop's inner LLM task calls replay from the event log — their
@@ -36,6 +38,8 @@ class Budget:
         """Add one LLM call's usage. None (provider reported nothing) is a no-op."""
         if usage is None:
             return
+        if usage.input_tokens < 0 or usage.output_tokens < 0:
+            raise ValueError("Token usage must be nonnegative")
         self._input_tokens += usage.input_tokens
         self._output_tokens += usage.output_tokens
 

@@ -469,7 +469,7 @@ async def isolated_wf(ctx: ExecutionContext[str]):
             workflow_info.source = b"src"
             workflow_info.metadata = {"runner": "subprocess"}
             catalog = MagicMock()
-            catalog.get.return_value = workflow_info
+            catalog.get_by_id.return_value = workflow_info
             mp.setattr(
                 "flux.api.worker_routes.WorkflowCatalog",
                 MagicMock(create=lambda: catalog),

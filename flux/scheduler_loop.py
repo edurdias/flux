@@ -332,56 +332,54 @@ class SchedulerLoop:
                     schedule_manager.record_failure(schedule.id)
                     return
 
-            _sched_ns = schedule.workflow_namespace
-            ctx = self._create_execution_fn(
-                _sched_ns,
-                schedule.workflow_name,
-                schedule.input_data,
-                routing_input=schedule.routing_input,
-            )
+            from uuid import NAMESPACE_URL, uuid5
+            from sqlalchemy import text
+            from flux.models import ExecutionContextModel, ScheduleModel
+            from flux.unit_of_work import UnitOfWork
+
+            with UnitOfWork(session_factory=self._session_factory) as uow:
+                session = uow.session
+                if session.bind.dialect.name == "sqlite":
+                    session.execute(text("BEGIN IMMEDIATE"))
+                stored = (
+                    session.query(ScheduleModel).filter_by(id=schedule.id).with_for_update().first()
+                )
+                if stored is None or stored.next_run_at != schedule.next_run_at:
+                    return
+                fire_id = uuid5(
+                    NAMESPACE_URL,
+                    f"flux:schedule:{schedule.id}:{stored.next_run_at}",
+                ).hex
+                ctx = self._create_execution_fn(
+                    schedule.workflow_namespace,
+                    schedule.workflow_name,
+                    schedule.input_data,
+                    routing_input=schedule.routing_input,
+                    uow=uow,
+                    execution_id=fire_id,
+                )
+                session.flush()
+                exec_row = session.get(ExecutionContextModel, ctx.execution_id)
+                exec_row.schedule_id = schedule.id
+                if auth_config.enabled and sa_principal is not None:
+                    from flux.security.execution_token import mint_execution_token
+
+                    exec_row.exec_token = mint_execution_token(
+                        subject=sa_principal.subject,
+                        principal_issuer="flux",
+                        execution_id=ctx.execution_id,
+                        on_behalf_of=f"schedule:{schedule.name}",
+                    )
+                    exec_row.scheduling_subject = sa_principal.subject
+                    exec_row.scheduling_principal_issuer = "flux"
+                stored.mark_run(scheduled_time)
+                uow.commit()
 
             if schedule.routing_input:
-                # Key names only, as at the run endpoint. Schedules are where
-                # routing values are set once and applied to every later fire,
-                # so this is the trace that matters most.
                 logger.info(
                     f"Execution {ctx.execution_id} carries routing input keys "
                     f"from schedule '{schedule.name}': {sorted(schedule.routing_input)}",
                 )
-
-            # Link the execution to its schedule (so history can be scoped to
-            # this schedule) and, when auth is on, attach its execution token.
-            # Both writes share one session/commit so the row is updated in a
-            # single transaction rather than two independent ones.
-            exec_token = None
-            if auth_config.enabled and sa_principal is not None:
-                from flux.security.execution_token import mint_execution_token
-
-                exec_token = mint_execution_token(
-                    subject=sa_principal.subject,
-                    principal_issuer="flux",
-                    execution_id=ctx.execution_id,
-                    on_behalf_of=f"schedule:{schedule.name}",
-                )
-
-            sched_link_session = self._session_factory()
-            try:
-                from flux.models import ExecutionContextModel as _ECM_SCHED
-
-                exec_row = sched_link_session.get(_ECM_SCHED, ctx.execution_id)
-                if exec_row:
-                    exec_row.schedule_id = schedule.id
-                    if exec_token is not None and sa_principal is not None:
-                        exec_row.exec_token = exec_token
-                        exec_row.scheduling_subject = sa_principal.subject
-                        exec_row.scheduling_principal_issuer = "flux"
-                    sched_link_session.commit()
-            finally:
-                sched_link_session.close()
-
-            # Persist the run: advances next_run_at and run stats in the DB so the
-            # schedule is no longer due (mutating the detached object alone is lost).
-            schedule_manager.record_run(schedule.id, scheduled_time)
 
             logger.info(
                 f"Triggered execution '{ctx.execution_id}' for '{schedule.workflow_name}'",

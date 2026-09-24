@@ -611,6 +611,12 @@ class ExecutionRoutesMixin:
             )
             from flux.unit_of_work import UnitOfWork
 
+            if identity is not None and identity.metadata.get("token_type") == "execution":
+                raise HTTPException(
+                    status_code=403,
+                    detail="Human approval requires an operator credential",
+                )
+
             cm = ContextManager.create()
 
             try:
@@ -910,7 +916,7 @@ class ExecutionRoutesMixin:
                 workflow_meta = {}
                 try:
                     _auth_ns = ctx.workflow_namespace
-                    wf = WorkflowCatalog.create().get(_auth_ns, ctx.workflow_name)
+                    wf = WorkflowCatalog.create().get_by_id(ctx.workflow_id)
                     workflow_meta = wf.metadata or {} if hasattr(wf, "metadata") else {}
                 except Exception:
                     pass

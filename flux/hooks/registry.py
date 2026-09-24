@@ -27,7 +27,10 @@ import threading
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from flux.unit_of_work import UnitOfWork
 
 from sqlalchemy.exc import IntegrityError
 
@@ -351,8 +354,26 @@ class HookRegistry:
 
         return result
 
-    def delete_owned_hooks(self, *, owner_type: str, owner_ref: str) -> int:
+    def delete_owned_hooks(
+        self,
+        *,
+        owner_type: str,
+        owner_ref: str,
+        uow: UnitOfWork | None = None,
+    ) -> int:
         """Delete every hook this owner declared -- workflow delete / agent delete."""
+        if uow is not None:
+            rows = (
+                uow.session.query(HookModel)
+                .filter_by(
+                    owner_type=owner_type,
+                    owner_ref=owner_ref,
+                )
+                .all()
+            )
+            for row in rows:
+                uow.session.delete(row)
+            return len(rows)
         count = 0
         for row in self.list_owned_hooks(owner_type=owner_type, owner_ref=owner_ref):
             self.delete_hook(row.name)

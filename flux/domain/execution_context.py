@@ -99,6 +99,8 @@ class ExecutionContext(Generic[WorkflowInputType]):
     def reset(token: Token) -> None:
         CURRENT_CONTEXT.reset(token)
 
+    claim_generation: int = 0
+
     @property
     def execution_id(self) -> str:
         return self._execution_id

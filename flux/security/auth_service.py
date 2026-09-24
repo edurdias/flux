@@ -87,7 +87,32 @@ def scope_to_execution(permissions: frozenset[str]) -> frozenset[str]:
             scoped.update(f"{r}:{rest}" if rest else f"{r}:*" for r in EXECUTION_TOKEN_RESOURCES)
         elif head in EXECUTION_TOKEN_RESOURCES:
             scoped.add(perm)
-    return frozenset(scoped)
+    # A terminal wildcard includes task approvals. Expand it into concrete
+    # runtime operations while preserving every namespace/name restriction.
+    runtime: set[str] = set()
+    templates = [f"workflow:*:*:{verb}" for verb in ("read", "run", "register", "delete")]
+    templates.append("workflow:*:*:task:*:execute")
+    for perm in scoped:
+        if not perm.startswith("workflow:"):
+            runtime.add(perm)
+        elif perm.endswith(":approve"):
+            continue
+        elif not perm.endswith(":*"):
+            runtime.add(perm)
+        else:
+            prefix = perm.split(":")[:-1]
+            for template in templates:
+                parts = template.split(":")
+                if len(prefix) > len(parts):
+                    continue
+                for index, segment in enumerate(prefix):
+                    if segment != "*" and parts[index] not in ("*", segment):
+                        break
+                    if segment != "*":
+                        parts[index] = segment
+                else:
+                    runtime.add(":".join(parts))
+    return frozenset(runtime)
 
 
 class AuthService:
@@ -132,18 +157,27 @@ class AuthService:
             # Never keep raw tokens as keys.
             cache_key = hashlib.sha256(token.encode()).hexdigest()
             cached = self._identity_cache.get(cache_key)
-            if cached is not None:
-                return cached  # type: ignore[return-value]
+            if isinstance(cached, FluxIdentity):
+                expiry = cached.metadata.get("expires_at")
+                if expiry is None or datetime.now(timezone.utc).timestamp() < expiry:
+                    return cached  # type: ignore[return-value]
 
         for provider in self._providers:
             try:
                 identity = await provider.authenticate(token)
                 if identity is not None:
+                    expiry = identity.metadata.get("expires_at")
+                    if expiry is not None and datetime.now(timezone.utc).timestamp() >= expiry:
+                        continue
                     if cache_key is not None:
+                        ttl = self._resolution_cache_ttl
+                        expiry = identity.metadata.get("expires_at")
+                        if expiry is not None:
+                            ttl = min(ttl, max(0, expiry - datetime.now(timezone.utc).timestamp()))
                         self._identity_cache.put(
                             cache_key,
                             identity,
-                            self._resolution_cache_ttl,
+                            ttl,
                         )
                     return identity
             except Exception as e:
@@ -222,6 +256,8 @@ class AuthService:
         self._permission_cache.clear()
 
     async def is_authorized(self, identity: FluxIdentity, required: str) -> bool:
+        if identity.metadata.get("token_type") == "execution" and required.endswith(":approve"):
+            return False
         permissions = await self.resolve_permissions(identity)
         return identity.has_permission(required, permissions)
 

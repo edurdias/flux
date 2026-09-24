@@ -198,10 +198,15 @@ class RetentionJob:
         if not ids:
             return 0
 
-        session.query(HookDeliveryModel).filter(HookDeliveryModel.id.in_(ids)).delete(
-            synchronize_session=False,
+        return (
+            session.query(HookDeliveryModel)
+            .filter(
+                HookDeliveryModel.id.in_(ids),
+                HookDeliveryModel.status.in_(_SETTLED_DELIVERY_STATUSES),
+                HookDeliveryModel.created_at < cutoff,
+            )
+            .delete(synchronize_session=False)
         )
-        return len(ids)
 
     @staticmethod
     @contextmanager

@@ -3,7 +3,10 @@ from __future__ import annotations
 import asyncio
 import json
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from flux.unit_of_work import UnitOfWork
 
 
 class ConfigManager(ABC):
@@ -61,9 +64,14 @@ class DatabaseConfigManager(ConfigManager):
                 session.add(ConfigModel(name=name, value=serialized))
             session.commit()
 
-    def remove(self, name: str) -> None:
+    def remove(self, name: str, *, uow: UnitOfWork | None = None) -> None:
         from flux.models import ConfigModel
 
+        if uow is not None:
+            config = uow.session.get(ConfigModel, name)
+            if config:
+                uow.session.delete(config)
+            return
         with self.session() as session:
             config = session.get(ConfigModel, name)
             if config:

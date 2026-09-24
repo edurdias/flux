@@ -11,8 +11,8 @@ follow, and both are load-bearing:
 * **No delivery blocks a checkpoint.** This code sits on the hottest write
   path in the engine (every checkpoint of every execution), so it returns
   before touching anything when hooks are off or nothing subscribes, and a
-  failure anywhere inside is logged and swallowed rather than allowed to fail
-  the execution whose state is being written.
+  matching or storage failure rolls back the checkpoint so its retry can
+  persist both the event and its delivery obligation.
 """
 
 from __future__ import annotations
@@ -31,9 +31,6 @@ from flux.hooks.envelope import build_envelope, parent_hop
 from flux.hooks.registry import HookRegistry
 from flux.hooks.selectors import HookEvent, events_from_save, selector_matches
 from flux.models import HookDeliveryModel
-from flux.utils import get_logger
-
-logger = get_logger(__name__)
 
 
 def enqueue(
@@ -49,22 +46,12 @@ def enqueue(
     ``session`` and left uncommitted: the caller's transaction decides
     whether they exist.
     """
-    try:
-        # Ordering is the whole point of this block: every checkpoint of
-        # every execution runs it, so the two cheapest answers come first.
-        # `has_any()` reads a cached snapshot, and neither branch builds a
-        # hook event or issues a query.
-        if not Configuration.get().settings.hooks.enabled:
-            return 0
-        registry = HookRegistry.create()
-        if not registry.has_any():
-            return 0
-        rows = _pending_rows(ctx, new_events, registry)
-    except Exception as ex:
-        # A broken selector, an unreachable registry, an envelope that will
-        # not build: none of it is the executing workflow's problem.
-        logger.warning(f"Hook enqueue skipped for execution {ctx.execution_id}: {ex}")
+    if not Configuration.get().settings.hooks.enabled:
         return 0
+    registry = HookRegistry.create()
+    if not registry.has_any():
+        return 0
+    rows = _pending_rows(ctx, new_events, registry)
 
     if not rows:
         return 0
@@ -79,7 +66,7 @@ def enqueue(
     # mistake it for one of ours and swallow it.
     session.flush()
 
-    return _insert(session, rows, ctx)
+    return _insert(session, rows)
 
 
 def _pending_rows(
@@ -125,7 +112,7 @@ def _pending_rows(
     return rows
 
 
-def _insert(session: Session, rows: list[HookDeliveryModel], ctx: ExecutionContext) -> int:
+def _insert(session: Session, rows: list[HookDeliveryModel]) -> int:
     added = 0
     for row in rows:
         try:
@@ -138,10 +125,16 @@ def _insert(session: Session, rows: list[HookDeliveryModel], ctx: ExecutionConte
                 session.add(row)
             added += 1
         except IntegrityError:
-            continue
-        except Exception as ex:
-            logger.warning(f"Hook enqueue failed for execution {ctx.execution_id}: {ex}")
-            break
+            duplicate = (
+                session.query(HookDeliveryModel.id)
+                .filter_by(
+                    hook_id=row.hook_id,
+                    event_key=row.event_key,
+                )
+                .first()
+            )
+            if duplicate is None:
+                raise
     return added
 
 

@@ -110,11 +110,13 @@ class OIDCProvider(AuthProvider):
             return None
 
     async def _resolve_principal(self, subject: str, issuer: str, claims: dict) -> FluxIdentity:
+        expiry = claims.get("exp")
+        expires_at = expiry + self.config.clock_skew if expiry is not None else None
         if self._registry is None:
             return FluxIdentity(
                 subject=subject,
                 roles=frozenset(),
-                metadata={"token_type": "oidc", "issuer": issuer},
+                metadata={"token_type": "oidc", "expires_at": expires_at, "issuer": issuer},
             )
 
         principal = self._registry.find(subject, issuer)
@@ -136,6 +138,7 @@ class OIDCProvider(AuthProvider):
                 roles=roles,
                 metadata={
                     "token_type": "oidc",
+                    "expires_at": expires_at,
                     "issuer": issuer,
                     "principal_id": principal.id,
                 },
@@ -144,6 +147,8 @@ class OIDCProvider(AuthProvider):
         return await self._auto_provision(subject, issuer, claims)
 
     async def _auto_provision(self, subject: str, issuer: str, claims: dict) -> FluxIdentity:
+        expiry = claims.get("exp")
+        expires_at = expiry + self.config.clock_skew if expiry is not None else None
         default_roles = getattr(self.config, "default_user_roles", [])
         if not default_roles:
             raise AuthenticationError("Principal not provisioned")
@@ -183,6 +188,7 @@ class OIDCProvider(AuthProvider):
             roles=roles,
             metadata={
                 "token_type": "oidc",
+                "expires_at": expires_at,
                 "issuer": issuer,
                 "principal_id": principal.id,
             },
