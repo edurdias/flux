@@ -52,8 +52,9 @@ class _FakeManager:
     def __init__(self):
         self.unclaimed: list[str] = []
 
-    def unclaim(self, execution_id):
+    def release_assignment(self, execution_id, worker_name, generation=None):
         self.unclaimed.append(execution_id)
+        return True
 
 
 def _dispatcher(server) -> Dispatcher:

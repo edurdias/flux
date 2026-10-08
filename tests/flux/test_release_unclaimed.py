@@ -557,3 +557,150 @@ async def test_scheduler_tick_runs_the_claim_deadline_sweep(cm, server):
 
     assert _row(stale) == (ExecutionState.CREATED, None, 2)
     assert server._work_available.is_set()
+
+
+# -- the older releases must not undo a claim made after this one -------------
+
+
+def test_a_late_drain_cannot_undo_a_claim_made_after_the_release(cm, server):
+    """Multi-replica: the worker's frame sits queued on replica B when it
+    reconnects to replica A. A releases the row, re-dispatches it, and the
+    worker claims it. B's dead stream drains later and must not reset the
+    claimed row, or a second worker runs it while the first still is."""
+    from flux.dispatcher import DispatchFrame
+
+    w1 = _worker("w1")
+    execution_id = _schedule_to(cm, w1)
+    stale_queue = __import__("asyncio").Queue()
+    stale_queue.put_nowait(DispatchFrame("execution_scheduled", execution_id, {}))
+    server._worker_queues["w1"] = stale_queue  # replica B's queue
+
+    cm.release_unclaimed(worker_name="w1")  # replica A's reconnect
+    cm.next_executions_batch([w1], limit=1)
+    cm.claim(execution_id, w1, expected_generation=3)
+
+    server._drain_worker_queue("w1")  # B's stream finally dies
+
+    assert _row(execution_id) == (ExecutionState.CLAIMED, "w1", 3)
+
+
+@pytest.mark.asyncio
+async def test_a_failed_delivery_cannot_undo_a_claim_made_after_the_release(cm, server):
+    """The reconnect pops the queue, then awaits its release: a delivery that
+    looks the queue up in that window finds none and releases its row. By
+    then the row may have been released, re-dispatched and claimed."""
+    from flux.dispatcher import Dispatcher
+
+    w1 = _worker("w1")
+    execution_id = _schedule_to(cm, w1)
+    ctx = cm.get(execution_id)
+    payload = server._build_dispatch_payload(ctx)
+    cm.release_unclaimed(worker_name="w1")
+    cm.next_executions_batch([w1], limit=1)
+    cm.claim(execution_id, w1, expected_generation=3)
+    server._worker_queues.pop("w1", None)
+
+    await Dispatcher(server)._deliver(cm, ctx, "w1", "execution_scheduled", payload=payload)
+
+    assert _row(execution_id) == (ExecutionState.CLAIMED, "w1", 3)
+
+
+def test_a_late_drain_releases_only_the_assignment_its_frame_was_built_for(cm, server):
+    """Re-dispatched to the same worker: the stale frame's drain leaves the
+    fresh assignment (and the frame on its way to the worker) alone."""
+    from flux.dispatcher import DispatchFrame
+
+    w1 = _worker("w1")
+    execution_id = _schedule_to(cm, w1)
+    stale_queue = __import__("asyncio").Queue()
+    stale_queue.put_nowait(DispatchFrame("execution_scheduled", execution_id, {}, generation=1))
+    server._worker_queues["w1"] = stale_queue
+    cm.release_unclaimed(worker_name="w1")
+    cm.next_executions_batch([w1], limit=1)
+
+    server._drain_worker_queue("w1")
+
+    assert _row(execution_id) == (ExecutionState.SCHEDULED, "w1", 3)
+
+
+def test_an_undelivered_frame_still_releases_its_own_assignment(cm, server):
+    from flux.dispatcher import DispatchFrame
+
+    w1 = _worker("w1")
+    execution_id = _schedule_to(cm, w1)
+    queue = __import__("asyncio").Queue()
+    queue.put_nowait(DispatchFrame("execution_scheduled", execution_id, {}, generation=1))
+    server._worker_queues["w1"] = queue
+
+    server._drain_worker_queue("w1")
+
+    assert _row(execution_id) == (ExecutionState.CREATED, None, 2)
+
+
+def test_an_unfenced_claim_cannot_take_a_row_another_worker_claimed(cm):
+    """A pre-fencing worker's late frame: the claim route read the row while
+    it was released (CREATED), then the dispatcher re-assigned it and w2
+    claimed it before w1's claim reached the database. The unfenced fallback
+    must not hand w1 a row w2 is already running."""
+    from flux.errors import ExecutionError
+
+    w1, w2 = _worker("w1"), _worker("w2")
+    execution_id = _schedule_to(cm, w1)
+    cm.release_unclaimed(worker_name="w1")
+    cm.next_executions_batch([w2], limit=1)
+    cm.claim(execution_id, w2, expected_generation=3)
+
+    with pytest.raises(ExecutionError):
+        cm.claim(execution_id, w1)
+    assert _row(execution_id) == (ExecutionState.CLAIMED, "w2", 3)
+
+
+def test_an_unfenced_claim_still_takes_a_released_row(cm):
+    """The pre-existing fallback a pre-fencing worker relies on stays."""
+    w1 = _worker("w1")
+    execution_id = _schedule_to(cm, w1)
+    cm.release_unclaimed(worker_name="w1")
+
+    assert cm.claim(execution_id, w1).state == ExecutionState.CLAIMED
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["poll", "event"])
+async def test_a_send_timeout_closes_the_stream_without_an_error(cm, server, mode):
+    """The timeout is how a stuck stream is meant to end. Raised out of the
+    response, uvicorn logs every one as 'Exception in ASGI application'."""
+    import asyncio
+
+    Configuration.get().override(dispatch={"mode": mode})
+    _worker("w1")
+    server.heartbeat_timeout = 0.1
+    server.heartbeat_interval = 0  # the first loop turn yields a ping
+    connect = _endpoint(server._app, "/workers/{name}/connect", "GET")
+    response = await connect(name="w1", identity=_identity("w1"))
+
+    async def stuck_send(message):
+        if message["type"] == "http.response.body":
+            await asyncio.sleep(3600)
+
+    async def receive():
+        await asyncio.sleep(3600)
+
+    await asyncio.wait_for(response({"type": "http"}, receive, stuck_send), 5)
+
+    assert "w1" not in server._worker_names  # the live stream disconnected it
+
+
+@pytest.mark.asyncio
+async def test_a_delivered_frame_records_the_generation_it_carries(cm, server):
+    """What lets a later drain release exactly this assignment."""
+    import asyncio
+
+    from flux.dispatcher import Dispatcher
+
+    w1 = _worker("w1")
+    execution_id = _schedule_to(cm, w1)
+    server._worker_queues["w1"] = asyncio.Queue()
+
+    await Dispatcher(server)._deliver(cm, cm.get(execution_id), "w1", "execution_scheduled")
+
+    assert server._worker_queues["w1"].get_nowait().generation == 1

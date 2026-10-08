@@ -321,24 +321,27 @@ class Server(
         queue = self._worker_queues.pop(name, None)
         if queue is None:
             return
-        to_release: list[str] = []
+        to_release: list[tuple[str, int | None]] = []
         while not queue.empty():
             try:
                 item = queue.get_nowait()
             except asyncio.QueueEmpty:
                 break
             if getattr(item, "kind", None) in ("execution_scheduled", "execution_resumed"):
-                to_release.append(item.execution_id)
+                to_release.append((item.execution_id, getattr(item, "generation", None)))
         if not to_release:
             return
 
         def _release() -> int:
             manager = ContextManager.create()
             released = 0
-            for execution_id in to_release:
+            for execution_id, generation in to_release:
                 try:
-                    manager.unclaim(execution_id)
-                    released += 1
+                    # Compare-and-set, not unclaim: another replica may have
+                    # released this row on the worker's reconnect and seen
+                    # it claimed since.
+                    if manager.release_assignment(execution_id, name, generation):
+                        released += 1
                 except Exception:
                     logger.error(
                         f"Failed to release undelivered execution {execution_id}",

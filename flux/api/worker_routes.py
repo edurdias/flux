@@ -24,6 +24,7 @@ from fastapi import Query
 from fastapi import Request
 from fastapi import Response
 from sse_starlette import EventSourceResponse
+from sse_starlette.sse import SendTimeoutError
 
 from flux.config import Configuration
 
@@ -49,6 +50,18 @@ from flux.api.schemas import (
 )
 
 logger = get_logger(__name__)
+
+
+class _WorkerStreamResponse(EventSourceResponse):
+    """A worker's SSE stream, where a send timeout is the intended end of a
+    stuck connection, not an error: the generator is already closed, and
+    raising it would only reach uvicorn's traceback logger."""
+
+    async def __call__(self, scope, receive, send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        except SendTimeoutError:
+            logger.info("Worker stream closed: a send timed out on a stuck connection")
 
 
 if TYPE_CHECKING:
@@ -710,7 +723,7 @@ class WorkerRoutesMixin:
                                     f"Stale SSE for {name} closed (superseded by newer connection)",
                                 )
 
-                    return EventSourceResponse(
+                    return _WorkerStreamResponse(
                         consume_dispatch_queue(),
                         send_timeout=send_timeout,
                         media_type="text/event-stream",
@@ -878,7 +891,7 @@ class WorkerRoutesMixin:
                                 f"Stale SSE for {name} closed (superseded by newer connection)",
                             )
 
-                return EventSourceResponse(
+                return _WorkerStreamResponse(
                     check_for_new_executions(),
                     send_timeout=send_timeout,
                     media_type="text/event-stream",
@@ -947,12 +960,20 @@ class WorkerRoutesMixin:
 
                 try:
                     if current.state in (ExecutionState.CREATED, ExecutionState.SCHEDULED):
-                        ctx = await asyncio.to_thread(
-                            context_manager.claim,
-                            execution_id,
-                            worker,
-                            expected_generation,
-                        )
+                        try:
+                            ctx = await asyncio.to_thread(
+                                context_manager.claim,
+                                execution_id,
+                                worker,
+                                expected_generation,
+                            )
+                        except ExecutionContextNotFoundError:
+                            raise HTTPException(
+                                status_code=404,
+                                detail=f"Execution {execution_id} not found.",
+                            )
+                        except ExecutionError as e:
+                            raise HTTPException(status_code=409, detail=str(e))
                         is_resume_claim = False
                     elif current.state == ExecutionState.RESUME_SCHEDULED:
                         try:

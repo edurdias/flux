@@ -262,6 +262,15 @@ class ContextManager(ABC):
         raise NotImplementedError()
 
     @abstractmethod
+    def release_assignment(
+        self,
+        execution_id: str,
+        worker_name: str,
+        generation: int | None = None,
+    ) -> bool:  # pragma: no cover
+        raise NotImplementedError()
+
+    @abstractmethod
     def release_worker(self, execution_id: str) -> ExecutionContext:  # pragma: no cover
         raise NotImplementedError()
 
@@ -1533,10 +1542,25 @@ class DatabaseContextManager(ContextManager):
             )
             # Fall back to the plain lookup so direct ctx.claim() callers
             # (tests, in-process flows that skip the dispatcher) still work.
+            # Locked and re-checked: the caller read the state outside this
+            # transaction, and a released row can be re-dispatched and
+            # claimed by another worker before this claim lands.
             if model is None:
-                model = session.get(ExecutionContextModel, execution_id)
+                model = (
+                    session.query(ExecutionContextModel)
+                    .filter(ExecutionContextModel.execution_id == execution_id)
+                    .with_for_update()
+                    .first()
+                )
             if model is None:
                 raise ExecutionContextNotFoundError(execution_id)
+            if model.state not in (ExecutionState.CREATED, ExecutionState.SCHEDULED):
+                raise ExecutionError(
+                    message=(
+                        f"Cannot claim execution {execution_id}: current state is "
+                        f"{model.state.value}"
+                    ),
+                )
             # Don't let the fallback hijack a row that was scheduled to a
             # different worker by the dispatcher. CREATED-from-tests still
             # passes through.
@@ -1744,6 +1768,41 @@ class DatabaseContextManager(ContextManager):
                 ]
 
             released = [c.execution_id for c in candidates if self._release_assignment(session, c)]
+            session.commit()
+            return released
+
+    def release_assignment(
+        self,
+        execution_id: str,
+        worker_name: str,
+        generation: int | None = None,
+    ) -> bool:
+        """Release one undelivered assignment, if it is still that assignment.
+
+        For a frame known never to have reached the worker (its queue was
+        dropped, or delivery failed). Unlike ``unclaim`` this never touches
+        a claimed row: the row may have been released elsewhere (a reconnect
+        on another replica) and claimed since. ``generation``, when the
+        frame carried one, narrows it to the exact assignment.
+        """
+        with self.session() as session:
+            query = session.query(
+                ExecutionContextModel.execution_id,
+                ExecutionContextModel.state,
+                ExecutionContextModel.worker_name,
+                ExecutionContextModel.claim_generation,
+                ExecutionContextModel.required_worker,
+            ).filter(
+                ExecutionContextModel.execution_id == execution_id,
+                ExecutionContextModel.state.in_(
+                    (ExecutionState.SCHEDULED, ExecutionState.RESUME_SCHEDULED),
+                ),
+                ExecutionContextModel.worker_name == worker_name,
+            )
+            if generation is not None:
+                query = query.filter(ExecutionContextModel.claim_generation == generation)
+            seen = query.first()
+            released = seen is not None and self._release_assignment(session, seen)
             session.commit()
             return released
 
