@@ -48,6 +48,9 @@ class DispatchFrame:
     kind: str  # execution_scheduled | execution_resumed | execution_cancelled
     execution_id: str
     frame: dict[str, Any]
+    # The claim generation the frame carries: an undelivered frame releases
+    # only the assignment it was built for.
+    generation: int | None = None
 
 
 class Dispatcher:
@@ -326,6 +329,7 @@ class Dispatcher:
                 DispatchFrame(
                     kind=event,
                     execution_id=ctx.execution_id,
+                    generation=payload.get("claim_generation"),
                     frame={
                         "id": f"{ctx.execution_id}_{uuid4().hex}",
                         "event": event,
@@ -339,8 +343,17 @@ class Dispatcher:
                 f"({type(e).__name__}: {e}); releasing for redispatch",
             )
             try:
-                await asyncio.to_thread(manager.unclaim, ctx.execution_id)
-                self._server._work_available.set()
+                # Only the assignment this delivery was for, and only while
+                # unclaimed: a reconnect may have released it already and a
+                # claim since then must not be undone.
+                generation = payload.get("claim_generation") if isinstance(payload, dict) else None
+                if await asyncio.to_thread(
+                    manager.release_assignment,
+                    ctx.execution_id,
+                    worker_name,
+                    generation,
+                ):
+                    self._server._work_available.set()
             except Exception:
                 logger.error(
                     f"Failed to release execution {ctx.execution_id}",

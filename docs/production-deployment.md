@@ -209,6 +209,15 @@ the same path. Plain HTTP round-robin works for everything else.
   writer cannot sidestep the fence by omitting it. The exceptions are the
   writes that legitimately predate a claim — resolving an unowned
   cancellation, and declining a dispatch that was never claimed.
+- **Lost dispatch frames**: a frame can vanish with a stalled stream (the
+  worker's stall detector reconnects before eviction ever fires). Its
+  execution would stay assigned to that worker, holding a capacity slot,
+  with nothing to release it. A worker's reconnect releases every
+  assignment it never claimed, and the scheduler releases any assignment
+  left unclaimed past `FLUX_WORKERS__CLAIM_TIMEOUT` (default 60 s, `0`
+  disables). Dispatch frames carry their claim generation and the worker
+  echoes it on the claim, so a lost frame that arrives after all is refused
+  (`stale-claim`, 409) instead of claiming work already re-dispatched.
 - **Self-health**: each worker probes its own event-loop lag
   (`FLUX_WORKERS__LOOP_LAG_THRESHOLD`, default 1 s; 0 disables). Three
   consecutive breaches — typically in-process workflow code blocking the

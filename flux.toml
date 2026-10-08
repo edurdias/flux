@@ -55,6 +55,7 @@ loop_lag_probe_interval = 1.0                               # Seconds between ev
 builtin_metrics = true                                      # Publish built-in flux.* metrics (loop lag, rates, durations, cpu/mem) on heartbeats
 eviction_grace_period = 30                                  # Seconds to wait after marking worker stale before evicting
 cancellation_orphan_grace = 300                             # Seconds before the scheduler resolves a CANCELLING execution whose worker never returned (0 = wait forever); parked cancels resolve immediately
+claim_timeout = 60                                          # Seconds a dispatched execution may stay unclaimed before the scheduler returns it to dispatch (0 = never)
 join_token_retention = 86400                                # Seconds past expiry a join-token row is kept as audit trail before the hourly purge (0 = keep forever)
 
 # Capability labels, equivalent to repeated --label flags (--label wins per

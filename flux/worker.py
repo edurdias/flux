@@ -966,6 +966,7 @@ class Worker:
             await self._release_claim(request.context.execution_id)
             return
 
+        claimed = False
         try:
             with span_cm as span:
                 logger.info(
@@ -978,13 +979,14 @@ class Worker:
                 try:
                     response = await self._authorized_post(
                         f"{base_url}/claim/{request.context.execution_id}",
+                        headers=self._dispatch_claim_headers(event_data),
                     )
                     response.raise_for_status()
                 except httpx.HTTPStatusError as claim_err:
                     if claim_err.response.status_code == 409:
                         logger.info(
                             f"Resume claim for {request.context.execution_id} returned 409 "
-                            f"(already claimed); dropping duplicate dispatch.",
+                            f"(already claimed or superseded); dropping this dispatch.",
                         )
                         return
                     raise
@@ -996,6 +998,7 @@ class Worker:
                 claim_data = response.json()
                 generation = response.headers.get("X-Flux-Claim-Generation")
                 self._begin_claim_lifecycle(request.context.execution_id, generation)
+                claimed = True
                 request.context = ExecutionContext.from_json(claim_data, self._checkpoint)
                 if request.exec_token:
                     request.context.set_exec_token(request.exec_token)
@@ -1025,7 +1028,10 @@ class Worker:
             logger.error(f"Error handling execution_resumed event: {str(ex)}")
             logger.debug(f"Exception details: {type(ex).__name__}: {str(ex)}", exc_info=True)
         finally:
-            self._close_checkpoint_outbox(request.context.execution_id)
+            # Only a handler that claimed owns the outbox: a refused duplicate
+            # or superseded frame must not close the live claim's.
+            if claimed:
+                self._close_checkpoint_outbox(request.context.execution_id)
 
     async def _handle_execution_scheduled(self, base_url, e):
         """Handle execution scheduled event asynchronously.
@@ -1090,6 +1096,7 @@ class Worker:
 
         is_transient = bool(event_data.get("transient"))
         self._claiming.add(request.context.execution_id)
+        claimed = False
         try:
             with span_cm as span:
                 logger.info(
@@ -1100,11 +1107,19 @@ class Worker:
                 logger.debug(f"Claiming execution: {request.context.execution_id}")
                 response = await self._authorized_post(
                     f"{base_url}/claim/{request.context.execution_id}",
+                    headers=self._dispatch_claim_headers(event_data),
                 )
+                if response.status_code == 409:
+                    logger.info(
+                        f"Claim for {request.context.execution_id} returned 409 "
+                        f"(already claimed or superseded); dropping this dispatch.",
+                    )
+                    return
                 response.raise_for_status()
                 claim_data = response.json()
                 generation = response.headers.get("X-Flux-Claim-Generation")
                 self._begin_claim_lifecycle(request.context.execution_id, generation)
+                claimed = True
                 request.context = ExecutionContext.from_json(claim_data, self._checkpoint)
                 if is_transient:
                     request.context.mark_transient()
@@ -1150,7 +1165,10 @@ class Worker:
             logger.debug(f"Exception details: {type(ex).__name__}: {str(ex)}", exc_info=True)
         finally:
             self._claiming.discard(request.context.execution_id)
-            self._close_checkpoint_outbox(request.context.execution_id)
+            # Only a handler that claimed owns the outbox: a refused duplicate
+            # or superseded frame must not close the live claim's.
+            if claimed:
+                self._close_checkpoint_outbox(request.context.execution_id)
 
     async def _execute_workflow(self, request: WorkflowExecutionRequest) -> ExecutionContext:
         """Execute a workflow from a workflow execution request.
@@ -1509,6 +1527,15 @@ class Worker:
             if box.closed:
                 self._discard_outbox_state(execution_id, box)
                 return
+
+    @staticmethod
+    def _dispatch_claim_headers(event_data: dict) -> dict[str, str]:
+        """Echo the frame's generation so the claim is fenced to the
+        assignment this frame was built for; a pre-fencing server sends none."""
+        generation = event_data.get("claim_generation")
+        if generation is None:
+            return {}
+        return {"X-Flux-Claim-Generation": str(generation)}
 
     def _begin_claim_lifecycle(self, execution_id: str, generation: str | None) -> None:
         """A fresh claim supersedes anything a previous lifecycle left behind.

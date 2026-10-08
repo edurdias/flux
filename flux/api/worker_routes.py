@@ -24,6 +24,7 @@ from fastapi import Query
 from fastapi import Request
 from fastapi import Response
 from sse_starlette import EventSourceResponse
+from sse_starlette.sse import SendTimeoutError
 
 from flux.config import Configuration
 
@@ -49,6 +50,18 @@ from flux.api.schemas import (
 )
 
 logger = get_logger(__name__)
+
+
+class _WorkerStreamResponse(EventSourceResponse):
+    """A worker's SSE stream, where a send timeout is the intended end of a
+    stuck connection, not an error: the generator is already closed, and
+    raising it would only reach uvicorn's traceback logger."""
+
+    async def __call__(self, scope, receive, send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        except SendTimeoutError:
+            logger.info("Worker stream closed: a send timed out on a stuck connection")
 
 
 if TYPE_CHECKING:
@@ -83,10 +96,15 @@ class WorkerRoutesMixin:
         try:
             exec_row = session.get(ExecutionContextModel, ctx.execution_id)
             exec_token = exec_row.exec_token if exec_row else None
+            generation = exec_row.claim_generation if exec_row else None
         finally:
             session.close()
         if exec_token:
             payload["exec_token"] = exec_token
+        if generation is not None:
+            # Echoed on the claim so this frame can only claim the assignment
+            # it was built for (see workers_claim).
+            payload["claim_generation"] = generation
         return payload
 
     def _register_worker_routes(  # type: ignore[misc]
@@ -651,15 +669,24 @@ class WorkerRoutesMixin:
 
                 self._worker_info[name] = worker
                 dispatch_mode = Configuration.get().settings.dispatch.mode
+                # A reconnect supersedes any previous stream for this worker.
+                # Frames the old stream took but never delivered — still
+                # queued, or already dequeued and lost in transit — leave
+                # their rows assigned here, and nothing else would ever
+                # release them while the worker keeps reconnecting inside
+                # the eviction window. Release every unclaimed assignment
+                # before the new stream exists; the old queue's frames are
+                # among them, so they are dropped rather than unclaimed.
+                self._worker_queues.pop(name, None)
+                await self._release_unclaimed_assignments(name)
+                # A send stuck on a dead connection would otherwise hold the
+                # generator (and its frame) until TCP gives up.
+                send_timeout = self.heartbeat_timeout
                 if dispatch_mode == "event":
-                    # A reconnect supersedes any previous stream for this worker:
-                    # release frames the old queue never delivered, then install
-                    # the new queue the dispatcher will feed.
-                    self._drain_worker_queue(name)
                     frame_queue: asyncio.Queue = asyncio.Queue()
                     self._worker_queues[name] = frame_queue
                     # New capacity — let the dispatcher assign any pending work.
-                    self._work_available.set()
+                    self._notify_next_worker()
 
                     async def consume_dispatch_queue():
                         last_ping_time = time.monotonic()
@@ -667,6 +694,8 @@ class WorkerRoutesMixin:
                             while True:
                                 if eviction_event.is_set():
                                     logger.info(f"Worker {name} evicted by reaper, closing SSE")
+                                    return
+                                if self._worker_connection_gen.get(name) != gen:
                                     return
 
                                 now = time.monotonic()
@@ -694,8 +723,9 @@ class WorkerRoutesMixin:
                                     f"Stale SSE for {name} closed (superseded by newer connection)",
                                 )
 
-                    return EventSourceResponse(
+                    return _WorkerStreamResponse(
                         consume_dispatch_queue(),
+                        send_timeout=send_timeout,
                         media_type="text/event-stream",
                         headers={
                             "Content-Type": "text/event-stream",
@@ -714,6 +744,11 @@ class WorkerRoutesMixin:
                             try:
                                 if eviction_event.is_set():
                                     logger.info(f"Worker {name} evicted by reaper, closing SSE")
+                                    return
+                                # Superseded by a reconnect: keep polling and
+                                # this loop assigns work to a stream nobody
+                                # reads.
+                                if self._worker_connection_gen.get(name) != gen:
                                     return
 
                                 now = time.monotonic()
@@ -856,8 +891,9 @@ class WorkerRoutesMixin:
                                 f"Stale SSE for {name} closed (superseded by newer connection)",
                             )
 
-                return EventSourceResponse(
+                return _WorkerStreamResponse(
                     check_for_new_executions(),
+                    send_timeout=send_timeout,
                     media_type="text/event-stream",
                     headers={
                         "Content-Type": "text/event-stream",
@@ -875,6 +911,7 @@ class WorkerRoutesMixin:
             name: str,
             execution_id: str,
             response: Response,
+            claim_generation: str | None = Header(None, alias="X-Flux-Claim-Generation"),
             identity: FluxIdentity = Depends(require_permission("worker:*:*")),
         ):
             from flux.domain import ExecutionState
@@ -882,6 +919,20 @@ class WorkerRoutesMixin:
             try:
                 logger.debug(f"Worker {name} claiming execution: {execution_id}")
                 self._verify_worker_identity(identity, name)
+                # The generation the dispatch frame was built under. A worker
+                # that echoes it can only claim that exact assignment, so a
+                # frame superseded by a release or re-dispatch is refused
+                # rather than racing the current one. Absent (older workers,
+                # direct callers) the claim stays unfenced.
+                expected_generation: int | None = None
+                if claim_generation is not None:
+                    try:
+                        expected_generation = int(claim_generation)
+                    except ValueError:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Invalid X-Flux-Claim-Generation header.",
+                        )
                 # The claim path reads nothing but worker.name (see
                 # ExecutionContext.claim / resume_claim), yet registry.get
                 # loads the worker row plus its packages relationship -- every
@@ -907,27 +958,45 @@ class WorkerRoutesMixin:
 
                 from flux.errors import ExecutionError
 
-                if current.state in (ExecutionState.CREATED, ExecutionState.SCHEDULED):
-                    ctx = await asyncio.to_thread(context_manager.claim, execution_id, worker)
-                    is_resume_claim = False
-                elif current.state == ExecutionState.RESUME_SCHEDULED:
-                    try:
-                        ctx = await asyncio.to_thread(
-                            context_manager.claim_resume,
-                            execution_id,
-                            worker,
+                try:
+                    if current.state in (ExecutionState.CREATED, ExecutionState.SCHEDULED):
+                        try:
+                            ctx = await asyncio.to_thread(
+                                context_manager.claim,
+                                execution_id,
+                                worker,
+                                expected_generation,
+                            )
+                        except ExecutionContextNotFoundError:
+                            raise HTTPException(
+                                status_code=404,
+                                detail=f"Execution {execution_id} not found.",
+                            )
+                        except ExecutionError as e:
+                            raise HTTPException(status_code=409, detail=str(e))
+                        is_resume_claim = False
+                    elif current.state == ExecutionState.RESUME_SCHEDULED:
+                        try:
+                            ctx = await asyncio.to_thread(
+                                context_manager.claim_resume,
+                                execution_id,
+                                worker,
+                                expected_generation,
+                            )
+                        except ExecutionError as e:
+                            raise HTTPException(status_code=409, detail=str(e))
+                        is_resume_claim = True
+                    else:
+                        raise HTTPException(
+                            status_code=409,
+                            detail=(
+                                f"Cannot claim execution {execution_id}: "
+                                f"current state is {current.state.value}"
+                            ),
                         )
-                    except ExecutionError as e:
-                        raise HTTPException(status_code=409, detail=str(e))
-                    is_resume_claim = True
-                else:
-                    raise HTTPException(
-                        status_code=409,
-                        detail=(
-                            f"Cannot claim execution {execution_id}: "
-                            f"current state is {current.state.value}"
-                        ),
-                    )
+                except StaleClaimError as e:
+                    logger.info(f"Refused superseded dispatch frame from worker {name}: {e}")
+                    raise HTTPException(status_code=409, detail=f"stale-claim: {e}")
 
                 logger.info(f"Execution {execution_id} claimed by worker {name}")
 
