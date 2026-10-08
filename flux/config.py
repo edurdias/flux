@@ -124,6 +124,17 @@ class WorkersConfig(BaseConfig):
             "regardless."
         ),
     )
+    claim_timeout: int = Field(
+        default=60,
+        ge=0,
+        description=(
+            "Seconds a dispatched execution may stay assigned to a worker "
+            "without being claimed before the scheduler sweep returns it to "
+            "dispatch. Covers dispatch frames lost in transit, which "
+            "otherwise hold the worker's capacity slot until a server "
+            "restart. 0 disables the sweep."
+        ),
+    )
     module_cache_ttl: int = Field(
         default=300,
         description="Seconds to cache compiled workflow modules (0 to disable)",

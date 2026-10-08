@@ -295,6 +295,7 @@ class Server(
                 hook_starter=_hook_execution_starter(self),
                 hook_authorizer=_hook_authorizer(self),
                 poll_interval=self.poll_interval,
+                notify_work=self._notify_next_worker,
             )
         return self._scheduler_loop_obj
 
@@ -358,6 +359,31 @@ class Server(
             # No loop (tests / teardown): release synchronously.
             if _release():
                 logger.info(f"Released undelivered execution(s) from worker {name}")
+
+    async def _release_unclaimed_assignments(self, name: str) -> None:
+        """Return a reconnecting worker's unclaimed assignments to dispatch.
+
+        Fenced per row (see ``ContextManager.release_unclaimed``), so a claim
+        racing this release either wins outright or is refused as stale; a
+        failure here only delays recovery to the claim-deadline sweep.
+        """
+        try:
+            released = await asyncio.to_thread(
+                ContextManager.create().release_unclaimed,
+                name,
+            )
+        except Exception:
+            logger.error(
+                f"Failed to release unclaimed executions for worker {name}",
+                exc_info=True,
+            )
+            return
+        if released:
+            logger.warning(
+                f"Released {len(released)} unclaimed execution(s) assigned to "
+                f"reconnecting worker {name}: {', '.join(released)}",
+            )
+            self._notify_next_worker()
 
     def _notify_next_worker(self):
         """Signal that new work is available.

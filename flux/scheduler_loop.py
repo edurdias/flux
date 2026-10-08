@@ -2,8 +2,9 @@
 
 Extracted from ``flux.server`` (#264 stage 2). One task per replica, taking
 the cross-replica dispatch lock for a whole cycle so two replicas cannot
-double-fire a schedule, and doing five jobs on each turn: firing due
-schedules, sweeping the park TTL, resuming executions whose wake condition
+double-fire a schedule, and doing six jobs on each turn: firing due
+schedules, sweeping the park TTL, releasing dispatched-but-unclaimed
+executions past the claim deadline, resuming executions whose wake condition
 came due, resolving orphaned cancellations, and draining outbound hooks.
 
 **What it needs from the server, and why.** The dependencies arrive through
@@ -18,6 +19,8 @@ the constructor rather than through ``self``, so the coupling is countable:
   a future engine-core boundary would have to turn into a channel.
 - ``hook_starter`` / ``hook_authorizer`` -- the drain's two callables, bound
   by the server (see ``flux.hooks.dispatch``).
+- ``notify_work`` -- wakes dispatch when the claim-deadline sweep returns
+  executions to it, instead of leaving them for the next poll.
 
 Lifecycle state (``task``, ``running``) belongs to this object now, rather
 than to the server that starts it.
@@ -27,7 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from collections.abc import Callable
 from typing import Any
 
@@ -55,6 +58,7 @@ class SchedulerLoop:
         hook_starter: Callable[..., Any],
         hook_authorizer: Callable[..., Any],
         poll_interval: float,
+        notify_work: Callable[[], None] | None = None,
     ) -> None:
         self._create_execution_fn = create_execution
         self._session_factory = session_factory
@@ -63,6 +67,7 @@ class SchedulerLoop:
         self._hook_starter = hook_starter
         self._hook_authorizer = hook_authorizer
         self._poll_interval = poll_interval
+        self._notify_work = notify_work
         self.task: asyncio.Task | None = None
         self.running = False
         self._last_join_token_purge: float | None = None
@@ -167,6 +172,16 @@ class SchedulerLoop:
                                 )
                         except Exception:
                             logger.error("Park-TTL sweep failed", exc_info=True)
+
+                        # Claim-deadline sweep: a dispatch frame lost in
+                        # transit leaves its row assigned to a worker that
+                        # will never claim it, holding a capacity slot. A
+                        # reconnect releases its own; this catches the rest
+                        # (no reconnect, or a frame lost on another replica).
+                        try:
+                            self.release_unclaimed(current_time)
+                        except Exception:
+                            logger.error("Claim-deadline sweep failed", exc_info=True)
 
                         # Orphaned-cancellation sweep (issue #225):
                         # CANCELLING rows whose delivery target is gone —
@@ -404,6 +419,23 @@ class SchedulerLoop:
                 m.record_schedule_trigger(schedule.name, "failure")
 
             raise
+
+    def release_unclaimed(self, current_time: datetime) -> list[str]:
+        """Return executions dispatched but unclaimed past ``claim_timeout``."""
+        timeout = Configuration.get().settings.workers.claim_timeout
+        if not timeout or timeout <= 0:
+            return []
+        released = ContextManager.create().release_unclaimed(
+            scheduled_before=current_time - timedelta(seconds=timeout),
+        )
+        if released:
+            logger.warning(
+                f"Released {len(released)} execution(s) dispatched but unclaimed "
+                f"for over {timeout}s: {', '.join(released)}",
+            )
+            if self._notify_work is not None:
+                self._notify_work()
+        return released
 
     def purge_join_tokens(self, *, now_monotonic: float | None = None) -> int:
         """Reap dead join-token rows, at most once an hour.

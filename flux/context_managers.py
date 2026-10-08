@@ -232,7 +232,12 @@ class ContextManager(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def claim(self, execution_id: str, worker: WorkerInfo) -> ExecutionContext:
+    def claim(
+        self,
+        execution_id: str,
+        worker: WorkerInfo,
+        expected_generation: int | None = None,
+    ) -> ExecutionContext:
         raise NotImplementedError()
 
     @abstractmethod
@@ -240,11 +245,20 @@ class ContextManager(ABC):
         self,
         execution_id: str,
         worker: WorkerInfo,
+        expected_generation: int | None = None,
     ) -> ExecutionContext:  # pragma: no cover
         raise NotImplementedError()
 
     @abstractmethod
     def unclaim(self, execution_id: str) -> ExecutionContext:  # pragma: no cover
+        raise NotImplementedError()
+
+    @abstractmethod
+    def release_unclaimed(
+        self,
+        worker_name: str | None = None,
+        scheduled_before: datetime | None = None,
+    ) -> list[str]:  # pragma: no cover
         raise NotImplementedError()
 
     @abstractmethod
@@ -441,11 +455,14 @@ class DatabaseContextManager(ContextManager):
                 name=name,
             )
 
-    @staticmethod
-    def _stamp_park_deadline(model, park_ttl: int | None = None) -> None:
-        """Start the unclaimed clock. 0/unset means park indefinitely (NULL).
+    @classmethod
+    def _stamp_park_deadline(cls, model, park_ttl: int | None = None) -> None:
+        """Start the unclaimed clock. 0/unset means park indefinitely (NULL)."""
+        model.park_deadline = cls._park_deadline(park_ttl)
 
-        int() + fallback: a mocked/partial Configuration (common in tests)
+    @staticmethod
+    def _park_deadline(park_ttl: int | None = None) -> datetime | None:
+        """int() + fallback: a mocked/partial Configuration (common in tests)
         must degrade to "no deadline", never break the caller.
         """
         ttl = park_ttl
@@ -456,9 +473,7 @@ class DatabaseContextManager(ContextManager):
                 ttl = int(_Configuration.get().settings.workers.park_ttl)
             except Exception:
                 ttl = 0
-        model.park_deadline = (
-            datetime.now(timezone.utc) + timedelta(seconds=ttl) if ttl and ttl > 0 else None
-        )
+        return datetime.now(timezone.utc) + timedelta(seconds=ttl) if ttl and ttl > 0 else None
 
     def _save_with_session(
         self,
@@ -1445,8 +1460,64 @@ class DatabaseContextManager(ContextManager):
             session.commit()
         return assignments
 
-    def claim(self, execution_id: str, worker: WorkerInfo) -> ExecutionContext:
+    def _fenced_assignment(
+        self,
+        session: Session,
+        execution_id: str,
+        worker: WorkerInfo,
+        state: ExecutionState,
+        expected_generation: int,
+    ) -> ExecutionContextModel:
+        """Lock the row a dispatch frame named, or refuse the frame as stale.
+
+        The frame carries the generation its assignment was made under; any
+        release or re-dispatch since then bumped it. Unlike the unfenced
+        path there is no CREATED fallback: a released row belongs to the
+        dispatcher, not to whichever old frame reaches the worker first.
+        """
+        model = (
+            session.query(ExecutionContextModel)
+            .filter(
+                ExecutionContextModel.execution_id == execution_id,
+                ExecutionContextModel.state == state,
+                ExecutionContextModel.worker_name == worker.name,
+            )
+            .with_for_update()
+            .first()
+        )
+        if model is None or (model.claim_generation or 0) != expected_generation:
+            current = model or session.get(ExecutionContextModel, execution_id)
+            if current is None:
+                raise ExecutionContextNotFoundError(execution_id)
+            raise StaleClaimError(
+                execution_id,
+                expected=expected_generation,
+                actual=current.claim_generation or 0,
+            )
+        return model
+
+    def claim(
+        self,
+        execution_id: str,
+        worker: WorkerInfo,
+        expected_generation: int | None = None,
+    ) -> ExecutionContext:
         with self.session() as session:
+            if expected_generation is not None:
+                model = self._fenced_assignment(
+                    session,
+                    execution_id,
+                    worker,
+                    ExecutionState.SCHEDULED,
+                    expected_generation,
+                )
+                ctx = model.to_plain()
+                ctx.claim(worker)
+                model.state = ctx.state
+                model.worker_name = ctx.current_worker
+                self._persist_events(ctx, session)
+                session.commit()
+                return ctx
             # Race-safe path: the row was already SCHEDULED to this worker by
             # next_execution(). Lock it for update so a second worker can't
             # double-claim between the SELECT and the COMMIT.
@@ -1498,18 +1569,32 @@ class DatabaseContextManager(ContextManager):
             session.commit()
             return ctx
 
-    def claim_resume(self, execution_id: str, worker: WorkerInfo) -> ExecutionContext:
+    def claim_resume(
+        self,
+        execution_id: str,
+        worker: WorkerInfo,
+        expected_generation: int | None = None,
+    ) -> ExecutionContext:
         with self.session() as session:
-            model = (
-                session.query(ExecutionContextModel)
-                .filter(
-                    ExecutionContextModel.execution_id == execution_id,
-                    ExecutionContextModel.state == ExecutionState.RESUME_SCHEDULED,
-                    ExecutionContextModel.worker_name == worker.name,
+            if expected_generation is not None:
+                model = self._fenced_assignment(
+                    session,
+                    execution_id,
+                    worker,
+                    ExecutionState.RESUME_SCHEDULED,
+                    expected_generation,
                 )
-                .with_for_update(skip_locked=True)
-                .first()
-            )
+            else:
+                model = (
+                    session.query(ExecutionContextModel)
+                    .filter(
+                        ExecutionContextModel.execution_id == execution_id,
+                        ExecutionContextModel.state == ExecutionState.RESUME_SCHEDULED,
+                        ExecutionContextModel.worker_name == worker.name,
+                    )
+                    .with_for_update(skip_locked=True)
+                    .first()
+                )
             if not model:
                 # Either the execution doesn't exist, isn't RESUME_SCHEDULED,
                 # or was scheduled for a different worker. resume_claim() will
@@ -1592,6 +1677,107 @@ class DatabaseContextManager(ContextManager):
                 session.commit()
                 return model.to_plain()
             return model.to_plain()
+
+    def release_unclaimed(
+        self,
+        worker_name: str | None = None,
+        scheduled_before: datetime | None = None,
+    ) -> list[str]:
+        """Return dispatched-but-unclaimed executions to the dispatcher.
+
+        A dispatch frame lost in transit (a stalled SSE stream the worker then
+        reconnects around) leaves its row SCHEDULED or
+        RESUME_SCHEDULED to that worker forever: the dispatcher only reads
+        CREATED/RESUMING, the worker never claims, and the row holds one of
+        the worker's capacity slots. ``worker_name`` scopes the release to one
+        worker (its reconnect); ``scheduled_before`` keeps only rows assigned
+        before that instant (the claim deadline). Same transition as
+        ``unclaim``.
+
+        Each release is a compare-and-set on (state, worker, generation), so
+        a claim that lands first wins and a row re-dispatched since the read
+        is left alone. The generation bump fences the lost frame: if it
+        arrives after all, its fenced claim is refused.
+        """
+        assigned = (ExecutionState.SCHEDULED, ExecutionState.RESUME_SCHEDULED)
+        with self.session() as session:
+            query = session.query(
+                ExecutionContextModel.execution_id,
+                ExecutionContextModel.state,
+                ExecutionContextModel.worker_name,
+                ExecutionContextModel.claim_generation,
+                ExecutionContextModel.required_worker,
+            ).filter(ExecutionContextModel.state.in_(assigned))
+            if worker_name is not None:
+                query = query.filter(ExecutionContextModel.worker_name == worker_name)
+            candidates = query.all()
+            if candidates and scheduled_before is not None:
+                from flux.domain.events import ExecutionEventType, as_utc
+
+                # No assigned-at column: the newest schedule event is that
+                # instant, written in the transaction that assigned the row.
+                assigned_at = dict(
+                    session.query(
+                        ExecutionEventModel.execution_id,
+                        func.max(ExecutionEventModel.time),
+                    )
+                    .filter(
+                        ExecutionEventModel.execution_id.in_(
+                            [c.execution_id for c in candidates],
+                        ),
+                        ExecutionEventModel.type.in_(
+                            (
+                                ExecutionEventType.WORKFLOW_SCHEDULED,
+                                ExecutionEventType.WORKFLOW_RESUME_SCHEDULED,
+                            ),
+                        ),
+                    )
+                    .group_by(ExecutionEventModel.execution_id)
+                    .all(),
+                )
+                cutoff = as_utc(scheduled_before)
+                candidates = [
+                    c
+                    for c in candidates
+                    if c.execution_id in assigned_at
+                    and as_utc(assigned_at[c.execution_id]) < cutoff
+                ]
+
+            released = [c.execution_id for c in candidates if self._release_assignment(session, c)]
+            session.commit()
+            return released
+
+    def _release_assignment(self, session: Session, seen) -> bool:
+        """Release one assignment exactly as it was read, or not at all.
+
+        ``seen`` is the (execution_id, state, worker_name, claim_generation,
+        required_worker) row read earlier; a claim, release or re-dispatch
+        since then changed one of the first four and the update matches
+        nothing.
+        """
+        values: dict = {
+            ExecutionContextModel.worker_name: None,
+            ExecutionContextModel.claim_generation: (seen.claim_generation or 0) + 1,
+        }
+        if seen.state == ExecutionState.RESUME_SCHEDULED:
+            values[ExecutionContextModel.state] = ExecutionState.RESUMING
+            if seen.required_worker:
+                # Now waiting on one worker with no fallback: restart the
+                # clock, as unclaim() does.
+                values[ExecutionContextModel.park_deadline] = self._park_deadline()
+        else:
+            values[ExecutionContextModel.state] = ExecutionState.CREATED
+        updated = (
+            session.query(ExecutionContextModel)
+            .filter(
+                ExecutionContextModel.execution_id == seen.execution_id,
+                ExecutionContextModel.state == seen.state,
+                ExecutionContextModel.worker_name == seen.worker_name,
+                ExecutionContextModel.claim_generation == seen.claim_generation,
+            )
+            .update(values, synchronize_session=False)
+        )
+        return bool(updated)
 
     def release_worker(self, execution_id: str) -> ExecutionContext:
         """Clear worker assignment on a suspended execution.
